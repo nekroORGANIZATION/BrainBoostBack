@@ -11,7 +11,7 @@ User = get_user_model()
 
 
 class AllUsersView(APIView):
-    permission_classes = [AllowAny]  # или IsAuthenticated, если нужна авторизация
+    permission_classes = [AllowAny] 
 
     def get(self, request):
         users = User.objects.all()
@@ -29,7 +29,7 @@ class UnverifiedTeachersView(APIView):
 
 
 class VerifyTeacherView(APIView):
-    permission_classes = [AllowAny]  # или IsAuthenticated
+    permission_classes = [AllowAny]
 
     def post(self, request, user_id):
         try:
@@ -42,7 +42,7 @@ class VerifyTeacherView(APIView):
 
 
 class TeacherDetailView(APIView):
-    permission_classes = [AllowAny]  # Или IsAuthenticated
+    permission_classes = [AllowAny]
 
     def get(self, request, user_id):
         try:

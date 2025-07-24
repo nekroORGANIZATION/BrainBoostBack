@@ -4,15 +4,18 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+
 class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'is_teacher', 'is_certified_teacher', 'is_email_verified']
 
+
 class QualificationDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = QualificationDocument
         fields = ['id', 'document', 'uploaded_at']
+
 
 class TeacherProfileAdminSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id')
@@ -24,6 +27,7 @@ class TeacherProfileAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherProfile
         fields = ['user_id', 'username', 'email', 'is_certified_teacher', 'documents']
+
 
 
 class TeacherDetailSerializer(serializers.ModelSerializer):

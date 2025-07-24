@@ -47,9 +47,6 @@ class UserProfileView(APIView):
         return Response(serializer.data)
 
 
-
-
-
 class TeacherRegisterView(APIView):
     permission_classes = [AllowAny]
 

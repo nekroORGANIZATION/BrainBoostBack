@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import UnverifiedTeachersView, VerifyTeacherView, AllUsersView, TeacherDetailView
 
+
 urlpatterns = [
     path('teachers/unverified/', UnverifiedTeachersView.as_view(), name='unverified-teachers'),
     path('teachers/verify/<int:user_id>/', VerifyTeacherView.as_view(), name='verify-teacher'),

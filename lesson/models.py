@@ -1,5 +1,5 @@
 from django.db import models
-from course.models import Course  # ссылка на модель курса
+from course.models import Course
 from django.conf import settings
 
 
@@ -18,7 +18,7 @@ class CourseTheory(models.Model):
     image = models.ImageField(upload_to='theory_images/', blank=True, null=True)
 
     def __str__(self):
-        return f'Theory for {self.lesson.course.title}'
+        return f'Theory for {self.lesson.title}'
 
 
 class Test(models.Model):
@@ -36,7 +36,7 @@ class TestQuestion(models.Model):
     question_text = models.TextField()
 
     def __str__(self):
-        return f'Question: {self.question_text} for {self.lesson.title}'
+        return f'Question: {self.question_text} for {self.test.lesson.title}'
 
 
 class TestAnswer(models.Model):
@@ -54,7 +54,7 @@ class TrueFalseQuestion(models.Model):
     is_true = models.BooleanField()
 
     def __str__(self):
-        return f'True/False Question: {self.question_text} for {self.lesson.title}'
+        return f'True/False Question: {self.question_text} for {self.test.lesson.title}'
 
 
 class OpenQuestion(models.Model):
@@ -63,4 +63,13 @@ class OpenQuestion(models.Model):
     correct_answer = models.TextField()
 
     def __str__(self):
-        return f'Open Question: {self.question_text} for {self.lesson.title}'
+        return f'Open Question: {self.question_text} for {self.test.lesson.title}'
+
+
+class LessonDone(models.Model):
+    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='lessons_done')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lessons_done_by_user')
+    completed_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email} completed {self.lesson.title}"

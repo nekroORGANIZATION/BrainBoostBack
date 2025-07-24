@@ -1,5 +1,8 @@
+from django.conf import settings
 from django.urls import path
 from .views import CourseListAPIView, CourseDetailAPIView
+from django.conf.urls.static import static
+
 
 urlpatterns = [
     path('', CourseListAPIView.as_view(), name='course_list_api'),

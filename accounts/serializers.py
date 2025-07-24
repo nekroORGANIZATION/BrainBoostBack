@@ -53,12 +53,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
         ]
 
 
-
-#  --->
 class QualificationDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = QualificationDocument
         fields = ['document']
+
 
 class TeacherRegisterSerializer(serializers.ModelSerializer):
     documents = serializers.ListField(

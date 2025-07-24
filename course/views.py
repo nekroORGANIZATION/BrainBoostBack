@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from .models import Course, Comment
 from .serializers import CourseSerializer, CommentSerializer
 
+
 class CourseListCreateView(generics.ListCreateAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
@@ -47,7 +48,6 @@ class CommentRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         serializer.save(author=self.request.user)
 
 
-
 class CourseUpdateView(generics.UpdateAPIView):
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
@@ -57,7 +57,7 @@ class CourseUpdateView(generics.UpdateAPIView):
         course = self.get_object()
         user = self.request.user
         if user.username != course.author and not user.is_staff:
-            raise PermissionDenied("У Вас немає доступа до редагування курсу.")
+            raise PermissionDenied("У Вас немає доступу до редагування курсу.")
         serializer.save()
 
 
@@ -68,6 +68,6 @@ class CourseDeleteView(APIView):
         course = get_object_or_404(Course, pk=pk)
         user = request.user
         if user.username != course.author and not user.is_staff:
-            raise PermissionDenied("Нет прав на удаление курса.")
+            raise PermissionDenied("У Вас немає доступу до видалення курсу.")
         course.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

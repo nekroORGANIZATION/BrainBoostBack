@@ -37,7 +37,6 @@ def ask_ai(request):
         return Response({"error": str(e)}, status=500)
 
 
-
 @api_view(['POST'])
 def course_recommendation_view(request):
     passed_tests_titles = request.data.get('passed_tests', [])

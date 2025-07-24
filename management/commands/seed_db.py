@@ -9,12 +9,10 @@ class Command(BaseCommand):
     help = 'Заповнення бази україномовними курсами, уроками та теоріями'
 
     def handle(self, *args, **kwargs):
-        # Очистка
         Course.objects.all().delete()
         Lesson.objects.all().delete()
         CourseTheory.objects.all().delete()
 
-        # Создание учителя
         teacher, _ = User.objects.get_or_create(
             username='teacher',
             defaults={
@@ -24,7 +22,6 @@ class Command(BaseCommand):
             }
         )
 
-        # Создание студента
         student, _ = User.objects.get_or_create(
             username='student',
             defaults={
@@ -34,7 +31,6 @@ class Command(BaseCommand):
             }
         )
 
-        # Список курсов
         courses_data = [
             {
                 'title': 'Базовий курс з фізики',
@@ -64,17 +60,14 @@ class Command(BaseCommand):
                 rating=4.7
             )
 
-            # Создание урока для каждого курса
             lesson = Lesson.objects.create(
                 course=course,
                 title=f'Вступ до курсу "{course.title}"',
                 description=f'Це перший урок курсу "{course.title}".'
             )
 
-            # Добавление теории
             CourseTheory.objects.create(
                 lesson=lesson,
                 theory_text=f'Теоретичний матеріал для курсу "{course.title}". Тут описуються базові поняття теми "{course.topic}".'
             )
-
         self.stdout.write(self.style.SUCCESS('База даних успішно заповнена: курси, уроки, теорії, учитель, студент.'))

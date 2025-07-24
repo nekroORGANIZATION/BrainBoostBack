@@ -14,5 +14,4 @@ urlpatterns = [
     path('register-teacher/', TeacherRegisterView.as_view(), name='register-teacher'),
 
     path('logout/', LogoutView.as_view(), name='logout'),
-    #path('profile/', ProfileView.as_view(), name='profile'),
 ]
