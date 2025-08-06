@@ -2,18 +2,22 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 from .models import Course, Comment
 from .serializers import CourseSerializer, CommentSerializer
+from rest_framework.parsers import JSONParser
 
 
 class CourseListCreateView(generics.ListCreateAPIView):
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     queryset = Course.objects.all()
     serializer_class = CourseSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user.username)
+        serializer.save(author=self.request.user)
+
 
 
 class CourseDetailView(generics.RetrieveAPIView):

@@ -5,7 +5,9 @@ from .views import (
     TestQuestionListCreateView, TestQuestionDetailView,
     TestAnswerListCreateView, TestAnswerDetailView,
     TrueFalseQuestionListCreateView, TrueFalseQuestionDetailView,
-    OpenQuestionListCreateView, OpenQuestionDetailView, TestListCreateView, TestDetailView
+    OpenQuestionListCreateView, OpenQuestionDetailView,
+    TestListCreateView, TestDetailView,
+    UserTestAttemptsView, SubmitTestAttemptView
 )
 
 urlpatterns = [
@@ -32,4 +34,6 @@ urlpatterns = [
     path('tests/', TestListCreateView.as_view(), name='test-list-create'),
     path('tests/<int:pk>/', TestDetailView.as_view(), name='test-detail'),
 
+    path('user_attempts/', UserTestAttemptsView.as_view(), name='user-test-attempts'),
+    path('submit_attempt/', SubmitTestAttemptView.as_view(), name='submit-test-attempt'),
 ]

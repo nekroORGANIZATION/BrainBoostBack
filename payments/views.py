@@ -20,7 +20,8 @@ class PayPalCreatePaymentView(APIView):
                 return_url='https://your.site/payment/success/',
                 cancel_url='https://your.site/payment/cancel/'
             )
-            return Response(result)
+
+            return Response(result, status=status.HTTP_201_CREATED)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

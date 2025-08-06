@@ -13,7 +13,7 @@ class Course(models.Model):
     title = models.CharField(max_length=200)
     description: str = models.TextField()
     price: float = models.DecimalField(max_digits=10, decimal_places=2)
-    author: str = models.CharField(max_length=100)
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='courses')
     language: str = models.CharField(max_length=50)
     topic: str = models.CharField(max_length=100)
     image = models.ImageField(upload_to='course_images/', blank=True, null=True)

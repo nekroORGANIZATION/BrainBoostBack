@@ -33,7 +33,7 @@ class PayPalService:
             for link in payment.links:
                 if link.rel == "approval_url":
                     return {
-                        'payment_id': payment.id,
+                        'id': payment.id,  # возвращаем ключ 'id', чтобы фронт его ждал
                         'approval_url': link.href
                     }
         else:
