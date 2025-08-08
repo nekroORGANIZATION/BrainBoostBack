@@ -1,9 +1,12 @@
-Django>=4.2,<5
+django
+django-cors-header
 djangorestframework
 djangorestframework-simplejwt
-django-cors-headers
-python-decouple
-Pillow
 requests
-# якщо плануєте Postgres у майбутньому:
-psycopg2-binary
+python-dotenv
+python-decouple
+paypalrestsdk
+Pillow
+dj_rest_auth
+django-allauth
+django-filter
