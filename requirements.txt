@@ -1,5 +1,5 @@
 django
-django-cors-header
+django-cors-headerі
 djangorestframework
 djangorestframework-simplejwt
 requests
