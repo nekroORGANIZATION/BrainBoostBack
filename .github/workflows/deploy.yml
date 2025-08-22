@@ -1,13 +1,15 @@
 name: Backend → Tester (remote build)
-
 on:
   push:
-    branches:
-      - dev
+    branches: [ "dev" ]
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: self-hosted
+    environment: dev
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -16,7 +18,7 @@ jobs:
         run: |
           echo "HOST=${{ secrets.TARGET_HOST }}" >> $GITHUB_ENV
           echo "USER=${{ secrets.TARGET_USER }}" >> $GITHUB_ENV
-          echo "PORT=${{ secrets.TARGET_SSH_PORT }}" >> $GITHUB_ENV
+          echo "PORT=${{ secrets.TARGET_SSH_PORT || 22 }}" >> $GITHUB_ENV
 
       - name: Sync code to Tester
         run: |
@@ -31,7 +33,22 @@ KEY
         
           ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "echo ok"
 
-      
+        
           ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p /opt/brainboost/src/backend"
           rsync -az --delete --exclude ".git" --exclude "node_modules" --exclude ".github" \
             -e "$RSYNC_RSH" ./ "$USER@$HOST:/opt/brainboost/src/backend/"
+
+      - name: Remote build & up (backend)
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          key: ${{ secrets.TARGET_SSH_KEY }}
+          port: ${{ env.PORT }}
+          script: |
+            set -e
+            LOCK=/var/lock/brainboost-deploy.lock; mkdir -p /var/lock || true
+            ( flock -w 600 9
+              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml build web
+              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml up -d web
+            ) 9>$LOCK
