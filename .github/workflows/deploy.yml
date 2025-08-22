@@ -11,29 +11,27 @@ jobs:
     runs-on: self-hosted
     environment: dev
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set target
         run: |
-          echo "HOST=${{ secrets.TARGET_HOST }}" >> $GITHUB_ENV
-          echo "USER=${{ secrets.TARGET_USER }}" >> $GITHUB_ENV
-          echo "PORT=${{ secrets.TARGET_SSH_PORT || 22 }}" >> $GITHUB_ENV
+          echo HOST=${{ secrets.TARGET_HOST }} >> $GITHUB_ENV
+          echo USER=${{ secrets.TARGET_USER }} >> $GITHUB_ENV
+          echo PORT=${{ secrets.TARGET_SSH_PORT || 22 }} >> $GITHUB_ENV
 
-      - name: Sync code to Tester
+      - name: Write SSH key & test
+        shell: bash
         run: |
           mkdir -p "${{ runner.temp }}"
-          cat > "${{ runner.temp }}/k" <<'KEY'
-${{ secrets.TARGET_SSH_KEY }}
-KEY
+          KEY="${{ secrets.TARGET_SSH_KEY }}"
+          printf '%s\n' "$KEY" | sed 's/\r$//' > "${{ runner.temp }}/k"
           chmod 600 "${{ runner.temp }}/k"
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" echo ok
 
+      - name: Sync code to Tester
+        shell: bash
+        run: |
           RSYNC_RSH="ssh -i ${{ runner.temp }}/k -p $PORT -o StrictHostKeyChecking=no"
-
-        
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "echo ok"
-
-        
           ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p /opt/brainboost/src/backend"
           rsync -az --delete --exclude ".git" --exclude "node_modules" --exclude ".github" \
             -e "$RSYNC_RSH" ./ "$USER@$HOST:/opt/brainboost/src/backend/"
@@ -46,9 +44,5 @@ KEY
           key: ${{ secrets.TARGET_SSH_KEY }}
           port: ${{ env.PORT }}
           script: |
-            set -e
-            LOCK=/var/lock/brainboost-deploy.lock; mkdir -p /var/lock || true
-            ( flock -w 600 9
-              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml build web
-              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml up -d web
-            ) 9>$LOCK
+            docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml build web
+            docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml up -d web
