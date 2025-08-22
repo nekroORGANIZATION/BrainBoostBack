@@ -1,47 +1,37 @@
 name: Backend → Tester (remote build)
+
 on:
   push:
-    branches: [ "dev" ]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: brainboost-backend-${{ github.ref_name }}
-  cancel-in-progress: true
+    branches:
+      - dev
 
 jobs:
   deploy:
     runs-on: self-hosted
-    environment: dev          
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Set target
         run: |
           echo "HOST=${{ secrets.TARGET_HOST }}" >> $GITHUB_ENV
           echo "USER=${{ secrets.TARGET_USER }}" >> $GITHUB_ENV
-          echo "PORT=${{ secrets.TARGET_SSH_PORT || 22 }}" >> $GITHUB_ENV
+          echo "PORT=${{ secrets.TARGET_SSH_PORT }}" >> $GITHUB_ENV
 
       - name: Sync code to Tester
         run: |
-          echo "${{ secrets.TARGET_SSH_KEY }}" > ${{ runner.temp }}/k && chmod 600 ${{ runner.temp }}/k
+          mkdir -p "${{ runner.temp }}"
+          cat > "${{ runner.temp }}/k" <<'KEY'
+${{ secrets.TARGET_SSH_KEY }}
+KEY
+          chmod 600 "${{ runner.temp }}/k"
+
           RSYNC_RSH="ssh -i ${{ runner.temp }}/k -p $PORT -o StrictHostKeyChecking=no"
-          ssh -i ${{ runner.temp }}/k -p $PORT -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p /opt/brainboost/src/backend"
+
+        
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "echo ok"
+
+      
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p /opt/brainboost/src/backend"
           rsync -az --delete --exclude ".git" --exclude "node_modules" --exclude ".github" \
             -e "$RSYNC_RSH" ./ "$USER@$HOST:/opt/brainboost/src/backend/"
-
-      - name: Remote build & up (backend)
-        uses: appleboy/ssh-action@v1.1.0
-        with:
-          host: ${{ env.HOST }}
-          username: ${{ env.USER }}
-          key: ${{ secrets.TARGET_SSH_KEY }}
-          port: ${{ env.PORT }}
-          script: |
-            set -e
-            LOCK=/var/lock/brainboost-deploy.lock; mkdir -p /var/lock || true
-            ( flock -w 600 9
-              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml build web
-              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml up -d web
-            ) 9>$LOCK
