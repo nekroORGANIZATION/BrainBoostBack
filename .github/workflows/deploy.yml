@@ -51,6 +51,23 @@ jobs:
           ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
             "cd /opt/brainboost/src/backend && docker build -t brainboost-back:latest ."
 
+      - name: Free port 8000 on Tester
+        shell: bash
+        run: |
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
+            set -e
+       
+            if [ -f /home/tester/BrainBoostBack/docker-compose.dev.yml ]; then
+              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml down || true
+            fi
+
+            CID=$(docker ps -q --filter "publish=8000")
+            if [ -n "$CID" ]; then
+              docker stop $CID || true
+              docker rm $CID || true
+            fi
+          '
+          
       - name: Run backend on port 8000
         shell: bash
         run: |
