@@ -38,38 +38,30 @@ jobs:
           rsync -az --delete --exclude ".git" --exclude "node_modules" --exclude ".github" \
             -e "$RSYNC_RSH" ./ "$USER@$HOST:/opt/brainboost/src/backend/"
 
-    
-      - name: Stop old container (if exists)
-        shell: bash
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "docker stop brainboost-back || true && docker rm brainboost-back || true && docker rmi brainboost-back:latest || true"
+      - name: Remote build & up (backend)
+        uses: appleboy/ssh-action@v1.1.0
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          key: ${{ secrets.TARGET_SSH_KEY }}
+          port: ${{ env.PORT }}
+          script: |
+            set -euo pipefail
 
-      - name: Build backend image on Tester
-        shell: bash
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "cd /opt/brainboost/src/backend && docker build -t brainboost-back:latest ."
+            cd /home/tester/BrainBoostBack
 
-      - name: Free port 8000 on Tester
-        shell: bash
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
-            set -e
-       
-            if [ -f /home/tester/BrainBoostBack/docker-compose.dev.yml ]; then
-              docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml down || true
-            fi
-
-            CID=$(docker ps -q --filter "publish=8000")
-            if [ -n "$CID" ]; then
-              docker stop $CID || true
-              docker rm $CID || true
-            fi
-          '
           
-      - name: Run backend on port 8000
-        shell: bash
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "docker run -d --name brainboost-back --restart unless-stopped -p 8000:8000 brainboost-back:latest"
+            docker compose -f docker-compose.dev.yml down || true
+
+          
+            docker compose -f docker-compose.dev.yml build web
+
+          
+            docker compose -f docker-compose.dev.yml up -d --force-recreate web
+
+          
+            sleep 2
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep 8000
+
+           
+            (curl -fsS http://127.0.0.1:8000/ >/dev/null) || (docker logs --tail=120 brainboostback-web-1; exit 1)
