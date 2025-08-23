@@ -1,4 +1,5 @@
 name: Backend → Tester (remote build)
+
 on:
   push:
     branches: [ "dev" ]
@@ -28,21 +29,30 @@ jobs:
           chmod 600 "${{ runner.temp }}/k"
           ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" echo ok
 
-      - name: Sync code to Tester
+      - name: Sync code to Tester (/opt/brainboost/src/backend)
         shell: bash
         run: |
           RSYNC_RSH="ssh -i ${{ runner.temp }}/k -p $PORT -o StrictHostKeyChecking=no"
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p /opt/brainboost/src/backend"
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "mkdir -p /opt/brainboost/src/backend"
           rsync -az --delete --exclude ".git" --exclude "node_modules" --exclude ".github" \
             -e "$RSYNC_RSH" ./ "$USER@$HOST:/opt/brainboost/src/backend/"
 
-      - name: Remote build & up (backend)
-        uses: appleboy/ssh-action@v1.1.0
-        with:
-          host: ${{ env.HOST }}
-          username: ${{ env.USER }}
-          key: ${{ secrets.TARGET_SSH_KEY }}
-          port: ${{ env.PORT }}
-          script: |
-            docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml build web
-            docker compose -f /home/tester/BrainBoostBack/docker-compose.dev.yml up -d web
+      # --- деплой на тестере: останавливаем старый, собираем и поднимаем новый ---
+      - name: Stop old container (if exists)
+        shell: bash
+        run: |
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "docker stop brainboost-back || true && docker rm brainboost-back || true && docker rmi brainboost-back:latest || true"
+
+      - name: Build backend image on Tester
+        shell: bash
+        run: |
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "cd /opt/brainboost/src/backend && docker build -t brainboost-back:latest ."
+
+      - name: Run backend on port 8000
+        shell: bash
+        run: |
+          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "docker run -d --name brainboost-back --restart unless-stopped -p 8000:8000 brainboost-back:latest"
