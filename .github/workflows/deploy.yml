@@ -47,21 +47,30 @@ jobs:
           port: ${{ env.PORT }}
           script: |
             set -euo pipefail
-
             cd /home/tester/BrainBoostBack
 
-          
+        
             docker compose -f docker-compose.dev.yml down || true
 
-          
+       
             docker compose -f docker-compose.dev.yml build web
 
-          
+           
             docker compose -f docker-compose.dev.yml up -d --force-recreate web
 
-          
-            sleep 2
-            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep 8000
+           
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep 8000 || true
 
            
-            (curl -fsS http://127.0.0.1:8000/ >/dev/null) || (docker logs --tail=120 brainboostback-web-1; exit 1)
+            echo "Waiting for http://127.0.0.1:8000 ..."
+            for i in $(seq 1 45); do        # ~90 сек
+              if curl -fsS http://127.0.0.1:8000/ >/dev/null 2>&1; then
+                echo "Backend is up ✅"
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "Backend did not become ready in time. Showing logs…"
+            docker logs --tail=200 brainboostback-web-1 || true
+            exit 1
