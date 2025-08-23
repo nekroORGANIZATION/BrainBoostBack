@@ -38,7 +38,7 @@ jobs:
           rsync -az --delete --exclude ".git" --exclude "node_modules" --exclude ".github" \
             -e "$RSYNC_RSH" ./ "$USER@$HOST:/opt/brainboost/src/backend/"
 
-      # --- деплой на тестере: останавливаем старый, собираем и поднимаем новый ---
+    
       - name: Stop old container (if exists)
         shell: bash
         run: |
