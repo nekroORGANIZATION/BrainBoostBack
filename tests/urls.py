@@ -1,13 +1,19 @@
 from django.urls import path
-from .views import *
+from .views import (
+    TestListCreateView,
+    TestRetrieveUpdateDestroyView,
+    TestPublicDetailView,
+    StartAttemptView,
+    SubmitAttemptView,
+)
 
 urlpatterns = [
-    path('tests/', TestListCreateView.as_view()),
-    path('tests/<int:pk>/', TestRetrieveUpdateDestroyView.as_view()),
-    path('questions/', QuestionListCreateView.as_view()),
-    path('questions/<int:pk>/', QuestionRetrieveUpdateDestroyView.as_view()),
-    path('choices/', ChoiceListCreateView.as_view()),
-    path('choices/<int:pk>/', ChoiceRetrieveUpdateDestroyView.as_view()),
-    path('answers/', AnswerListCreateView.as_view()),
-    path('submit-answers/', SubmitAnswersView.as_view()),
+    # CRUD для викладача
+    path('', TestListCreateView.as_view(), name='test-list'),
+    path('<int:pk>/', TestRetrieveUpdateDestroyView.as_view(), name='test-detail'),
+
+    # Студентський флоу
+    path('<int:pk>/public/', TestPublicDetailView.as_view(), name='test-public'),
+    path('<int:pk>/attempts/start/', StartAttemptView.as_view(), name='attempt-start'),
+    path('<int:pk>/attempts/<int:attempt_id>/submit/', SubmitAttemptView.as_view(), name='attempt-submit'),
 ]

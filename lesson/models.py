@@ -1,90 +1,116 @@
 from django.db import models
-from course.models import Course
 from django.conf import settings
-
-class Lesson(models.Model):
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='lessons')
-    title = models.CharField(max_length=200)
-    description = models.TextField()
-
-    def __str__(self):
-        return f'Lesson: {self.title} in {self.course.title}'
+from course.models import Course
 
 
-class CourseTheory(models.Model):
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='theories')
-    theory_text = models.TextField()
-    image = models.ImageField(upload_to='theory_images/', blank=True, null=True)
-
-    def __str__(self):
-        return f'Theory for {self.lesson.title}'
-
-
-# Тест, связанный с уроком
-class Test(models.Model):
-    lesson = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='tests')
-    title = models.CharField(max_length=200)
-
-    def __str__(self):
-        return f'Test: {self.title} for lesson {self.lesson.title}'
-
-
-# Вопрос с вариантами ответов (множественный выбор)
-class TestQuestion(models.Model):
-    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name='test_questions')
-    question_text = models.TextField()
-
-    def __str__(self):
-        return f'MC Question: {self.question_text[:50]}'
-
-
-class TestAnswer(models.Model):
-    question = models.ForeignKey(TestQuestion, on_delete=models.CASCADE, related_name='answers')
-    answer_text = models.CharField(max_length=500)
-    is_correct = models.BooleanField(default=False)
-
-    def __str__(self):
-        return f'Answer: {self.answer_text[:50]} (Correct: {self.is_correct})'
-
-
-# Вопрос True/False
-class TrueFalseQuestion(models.Model):
-    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name='true_false_questions')
-    question_text = models.TextField()
-    correct_answer = models.BooleanField()
-
-    def __str__(self):
-        return f'TF Question: {self.question_text[:50]}'
-
-
-# Открытый вопрос (текстовый ответ)
-class OpenQuestion(models.Model):
-    test = models.ForeignKey(Test, on_delete=models.CASCADE, related_name='open_questions')
-    question_text = models.TextField()
-
-    def __str__(self):
-        return f'Open Question: {self.question_text[:50]}'
-
-
-class TestAttempt(models.Model):
-    test = models.ForeignKey('Test', on_delete=models.CASCADE, related_name='attempts')
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='test_attempts')
-    score = models.IntegerField(default=0)
-    completed_at = models.DateTimeField(auto_now_add=True)
-
-
-class QuestionAttempt(models.Model):
-    attempt = models.ForeignKey(TestAttempt, on_delete=models.CASCADE, related_name='question_attempts')
-    question_text = models.TextField()
-    user_answer = models.TextField()
-    correct_answer = models.TextField()
-    is_correct = models.BooleanField()
+class Module(models.Model):
+    """
+    Логічний розділ курсу. Допомагає групувати уроки і керувати порядком.
+    """
+    course      = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='modules')
+    title       = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    order       = models.PositiveIntegerField(default=0, db_index=True)
+    is_visible  = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = ('attempt', 'question_text')
+        ordering = ['order', 'id']
+        unique_together = [('course', 'title')]
 
-class TestAnswerAttempt(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    question = models.ForeignKey('TestQuestion', on_delete=models.CASCADE)
-    selected_answer = models.ForeignKey('TestAnswer', on_delete=models.CASCADE)
-    timestamp = models.DateTimeField(auto_now_add=True)
+    def __str__(self):
+        return f'{self.course.title} — {self.title}'
+
+
+class Lesson(models.Model):
+    class Status(models.TextChoices):
+        DRAFT     = 'draft', 'Draft'
+        SCHEDULED = 'scheduled', 'Scheduled'
+        PUBLISHED = 'published', 'Published'
+        ARCHIVED  = 'archived', 'Archived'
+
+    course         = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='lessons')
+    module         = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name='lessons')
+
+    title          = models.CharField(max_length=200)
+    slug           = models.SlugField(max_length=220, unique=True)
+
+    summary        = models.TextField(blank=True)
+    order          = models.PositiveIntegerField(default=0, db_index=True)
+    status         = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+
+    scheduled_at   = models.DateTimeField(null=True, blank=True)
+    published_at   = models.DateTimeField(null=True, blank=True)
+
+    duration_min   = models.PositiveIntegerField(null=True, blank=True)  # опц.: тривалість уроку хв.
+    cover_image    = models.ImageField(upload_to='lesson_covers/', null=True, blank=True)
+
+    created_at     = models.DateTimeField(auto_now_add=True)
+    updated_at     = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+        indexes  = [
+            models.Index(fields=['course']),
+            models.Index(fields=['module']),
+            models.Index(fields=['status']),
+        ]
+        unique_together = [('course', 'title')]
+
+    def __str__(self):
+        return self.title
+
+
+class LessonContent(models.Model):
+    """
+    Блочний контент уроку (редактор з блоків).
+    data — JSON зі структурою під тип.
+    """
+    class Type(models.TextChoices):
+        TEXT      = 'text',      'Text'
+        IMAGE     = 'image',     'Image'
+        VIDEO     = 'video',     'Video'
+        CODE      = 'code',      'Code'
+        FILE      = 'file',      'File'
+        QUOTE     = 'quote',     'Quote'
+        CHECKLIST = 'checklist', 'Checklist'
+        HTML      = 'html',      'HTML'
+
+    lesson   = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='contents')
+    type     = models.CharField(max_length=16, choices=Type.choices)
+    data     = models.JSONField(default=dict, blank=True)  # {text, url, language, items, ...}
+    order    = models.PositiveIntegerField(default=0, db_index=True)
+    is_hidden= models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['order', 'id']
+        indexes  = [models.Index(fields=['lesson', 'order'])]
+
+    def __str__(self):
+        return f'[{self.type}] {self.lesson.title} #{self.order}'
+
+
+class LessonProgress(models.Model):
+    """
+    Прогрес користувача по уроку.
+    """
+    class State(models.TextChoices):
+        NOT_STARTED = 'not_started', 'Not started'
+        STARTED     = 'started',     'Started'
+        COMPLETED   = 'completed',   'Completed'
+
+    user        = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lesson_progress')
+    lesson      = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='progress')
+    state       = models.CharField(max_length=16, choices=State.choices, default=State.NOT_STARTED)
+    started_at  = models.DateTimeField(null=True, blank=True)
+    completed_at= models.DateTimeField(null=True, blank=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('user', 'lesson')]
+        indexes = [
+            models.Index(fields=['user', 'lesson']),
+            models.Index(fields=['lesson', 'state']),
+        ]
+
+    def __str__(self):
+        return f'{self.user} — {self.lesson} — {self.state}'

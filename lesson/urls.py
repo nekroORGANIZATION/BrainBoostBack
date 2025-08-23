@@ -1,39 +1,31 @@
 from django.urls import path
 from .views import (
-    LessonListCreateView, LessonDetailView, LessonUpdateView, LessonDeleteView,
-    CourseTheoryListCreateView, CourseTheoryDetailView,
-    TestQuestionListCreateView, TestQuestionDetailView,
-    TestAnswerListCreateView, TestAnswerDetailView,
-    TrueFalseQuestionListCreateView, TrueFalseQuestionDetailView,
-    OpenQuestionListCreateView, OpenQuestionDetailView,
-    TestListCreateView, TestDetailView,
-    UserTestAttemptsView, SubmitTestAttemptView
+    # teacher
+    ModuleListCreateView, ModuleDetailView, ModuleReorderView,
+    LessonListCreateView, LessonDetailView, LessonReorderView, LessonContentReorderView, LessonPublishView,
+    # student
+    LessonPublicDetailView, LessonProgressUpsertView,
+    # simple
+    SimpleLessonCreateView,
 )
 
 urlpatterns = [
-    path('lessons/', LessonListCreateView.as_view(), name='lesson-list-create'),
-    path('lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
-    path('lessons/<int:pk>/edit/', LessonUpdateView.as_view(), name='lesson-edit'),
-    path('lessons/<int:pk>/delete/', LessonDeleteView.as_view(), name='lesson-delete'),
+    # новый эндпоинт для фронта
+    path('lessons/', SimpleLessonCreateView.as_view(), name='lesson-simple-create'),
 
-    path('theories/', CourseTheoryListCreateView.as_view(), name='theory-list-create'),
-    path('theories/<int:pk>/', CourseTheoryDetailView.as_view(), name='theory-detail'),
+    # Modules (teacher)
+    path('admin/modules/', ModuleListCreateView.as_view(), name='module-list'),
+    path('admin/modules/reorder/', ModuleReorderView.as_view(), name='module-reorder'),
+    path('admin/modules/<int:pk>/', ModuleDetailView.as_view(), name='module-detail'),
 
-    path('test-questions/', TestQuestionListCreateView.as_view(), name='test-question-list-create'),
-    path('test-questions/<int:pk>/', TestQuestionDetailView.as_view(), name='test-question-detail'),
+    # Lessons (teacher)
+    path('admin/lessons/', LessonListCreateView.as_view(), name='lesson-list'),
+    path('admin/lessons/reorder/', LessonReorderView.as_view(), name='lesson-reorder'),
+    path('admin/lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
+    path('admin/lessons/<int:pk>/publish/', LessonPublishView.as_view(), name='lesson-publish'),
+    path('admin/lessons/<int:lesson_id>/contents/reorder/', LessonContentReorderView.as_view(), name='lesson-content-reorder'),
 
-    path('test-answers/', TestAnswerListCreateView.as_view(), name='test-answer-list-create'),
-    path('test-answers/<int:pk>/', TestAnswerDetailView.as_view(), name='test-answer-detail'),
-
-    path('true-false-questions/', TrueFalseQuestionListCreateView.as_view(), name='tf-question-list-create'),
-    path('true-false-questions/<int:pk>/', TrueFalseQuestionDetailView.as_view(), name='tf-question-detail'),
-
-    path('open-questions/', OpenQuestionListCreateView.as_view(), name='open-question-list-create'),
-    path('open-questions/<int:pk>/', OpenQuestionDetailView.as_view(), name='open-question-detail'),
-
-    path('tests/', TestListCreateView.as_view(), name='test-list-create'),
-    path('tests/<int:pk>/', TestDetailView.as_view(), name='test-detail'),
-
-    path('user_attempts/', UserTestAttemptsView.as_view(), name='user-test-attempts'),
-    path('submit_attempt/', SubmitTestAttemptView.as_view(), name='submit-test-attempt'),
+    # Public (student)
+    path('public/lessons/<slug:slug>/', LessonPublicDetailView.as_view(), name='lesson-public-detail'),
+    path('progress/<int:lesson_id>/', LessonProgressUpsertView.as_view(), name='lesson-progress-upsert'),
 ]

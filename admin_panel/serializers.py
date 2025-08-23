@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from accounts.models import TeacherProfile, QualificationDocument
 from django.contrib.auth import get_user_model
+from .models import TeacherApplication
 
 User = get_user_model()
 
@@ -42,4 +43,20 @@ class TeacherDetailSerializer(serializers.ModelSerializer):
             'teacher_profile_created',
             'documents'
         ]
+
+
+class TeacherApplicationSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TeacherApplication
+        fields = [
+            'id', 'user', 'status', 'note',
+            'selfie_photo', 'id_photo', 'diploma_photo',
+            'created_at',
+        ]
+
+    def get_user(self, obj):
+        u = obj.user
+        return {'id': u.id, 'username': u.username, 'email': getattr(u, 'email', None)}
         
