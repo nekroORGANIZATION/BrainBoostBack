@@ -9,6 +9,7 @@ HEADERS = {
     'Content-Type': 'application/json',
 }
 
+
 def create_coinbase_charge(name, description, amount, currency='USD'):
     url = 'https://api.commerce.coinbase.com/charges'
     payload = {
