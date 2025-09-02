@@ -67,24 +67,13 @@ jobs:
       - name: Pull & run backend on Tester (port 8000)
         shell: bash
         env:
-          IMG_SHA: ghcr.io/nekroorganization/backend:${{ github.sha }}
-          IMG_DEV: ghcr.io/nekroorganization/backend:dev
+          IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
         run: |
           ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
             "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
               set -e
-              mkdir -p /opt/brainboost/env
 
-              # записуємо змінні у файл
-              cat >/opt/brainboost/env/backend.env <<EOF
-              SECRET_KEY=${{ secrets.SECRET_KEY }}
-              DEBUG=${{ secrets.DEBUG }}
-              ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
-              EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
-              EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}
-              EOF
-
-              # тягнемо образи
               docker pull '"$IMG_SHA"' || true
               docker pull '"$IMG_DEV"' || true
 
@@ -97,9 +86,20 @@ jobs:
                 IMG='"$IMG_DEV"'
               fi
 
+              # заповнюємо env і передаємо їх у docker run
+              SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
+              DEBUG='"'${{ secrets.DEBUG || '1' }}'"' \
+              ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || '127.0.0.1,localhost,172.17.10.22' }}'"' \
+              EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || '' }}'"' \
+              EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || '' }}'"' \
               docker run -d --name brainboost-back --restart unless-stopped \
-                --env-file /opt/brainboost/env/backend.env \
-                -p 8000:8000 "$IMG"
+                -p 8000:8000 \
+                -e SECRET_KEY \
+                -e DEBUG \
+                -e ALLOWED_HOSTS \
+                -e EMAIL_HOST_USER \
+                -e EMAIL_HOST_PASSWORD \
+                "$IMG"
 
               echo "Waiting for http://127.0.0.1:8000 ..."
               for i in $(seq 1 60); do
