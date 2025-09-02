@@ -1,0 +1,51 @@
+name: Backend → Prod (build in GitHub, run on PROD via Runner)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch: {}
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: nekroorganization          # ЛИШЕ нижній регістр
+  IMAGE_NAME: backend
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    environment: main               # щоб бачити GHCR_* з env "main"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR (PAT with write:packages)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.GHCR_USER }}
+          password: ${{ secrets.GHCR_WRITE_TOKEN }}
+
+      - name: Build & Push image :prod
+        uses: docker/build-push-action@v6
+        with:
+          context: .                 # ← змінити на ./backend якщо потрібно
+          # file: ./backend/Dockerfile   # ← розкоментуй, якщо Dockerfile не "Dockerfile" або в підтеці
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:prod
+
+  deploy:
+    needs: build-and-push
+    if: github.ref_name == 'main'
+    runs-on: [self-hosted, Linux, X64]   # твій Runner
+    environment: main
+    steps:
+      - name: Deploy via Runner → PROD
+        env:
+          GHCR_USER:  ${{ secrets.GHCR_USER }}        # потрібні, якщо образи приватні
+          GHCR_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          TARGET:     ${{ secrets.PROD_TARGET_HOST }}  # напр. dev@172.17.10.23
+        run: |
+          /opt/deploy/deploy-myapp.sh "${TARGET}"
