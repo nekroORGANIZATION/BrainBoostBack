@@ -67,43 +67,50 @@ jobs:
       - name: Pull & run backend on Tester (port 8000)
         shell: bash
         env:
-          IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
+          IMG_SHA: ghcr.io/nekroorganization/backend:${{ github.sha }}
+          IMG_DEV: ghcr.io/nekroorganization/backend:dev
         run: |
           ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" "
+            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
               set -e
-              docker pull '$IMG_SHA' || true
-              docker pull '$IMG_DEV' || true
+              mkdir -p /opt/brainboost/env
+
+              # записуємо змінні у файл
+              cat >/opt/brainboost/env/backend.env <<EOF
+              SECRET_KEY=${{ secrets.SECRET_KEY }}
+              DEBUG=${{ secrets.DEBUG }}
+              ALLOWED_HOSTS=${{ secrets.ALLOWED_HOSTS }}
+              EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}
+              EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}
+              EOF
+
+              # тягнемо образи
+              docker pull '"$IMG_SHA"' || true
+              docker pull '"$IMG_DEV"' || true
 
               docker stop brainboost-back || true
               docker rm   brainboost-back || true
 
-              if docker image inspect '$IMG_SHA' >/dev/null 2>&1; then
-                IMG='$IMG_SHA'
+              if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
+                IMG='"$IMG_SHA"'
               else
-                IMG='$IMG_DEV'
+                IMG='"$IMG_DEV"'
               fi
 
               docker run -d --name brainboost-back --restart unless-stopped \
-                -p 8000:8000 \
-                -e SECRET_KEY='${{ secrets.BACKEND_SECRET_KEY }}' \
-                -e DEBUG='${{ secrets.BACKEND_DEBUG }}' \
-                -e ALLOWED_HOSTS='${{ secrets.BACKEND_ALLOWED_HOSTS }}' \
-                -e EMAIL_HOST_USER='${{ secrets.EMAIL_HOST_USER }}' \
-                -e EMAIL_HOST_PASSWORD='${{ secrets.EMAIL_HOST_PASSWORD }}' \
-                \"\$IMG\"
+                --env-file /opt/brainboost/env/backend.env \
+                -p 8000:8000 "$IMG"
 
-              echo 'Waiting for backend on http://127.0.0.1:8000 ...'
-              for i in \$(seq 1 60); do
-                code=\$(curl -s -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/ || true)
-                if [ -n \"\$code\" ] && [ \"\$code\" != \"000\" ]; then
-                  echo \"Backend is up (HTTP \$code) ✅\"
+              echo "Waiting for http://127.0.0.1:8000 ..."
+              for i in $(seq 1 60); do
+                code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
+                if [ -n "$code" ] && [ "$code" != "000" ]; then
+                  echo "Backend is up (HTTP $code) ✅"
                   exit 0
                 fi
                 sleep 1
               done
-              echo 'Backend did not become ready in time. Logs:'
+              echo "Backend did not become ready in time. Logs:"
               docker logs --tail=200 brainboost-back || true
               exit 1
-            "
+            '
