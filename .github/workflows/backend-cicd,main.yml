@@ -15,36 +15,25 @@ permissions:
   packages: write                # для пушу в GHCR через GITHUB_TOKEN
 
 jobs:
-  build-and-push-prod:
+  build-and-push:
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'main' || 'dev' }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Login to GHCR (with PAT)
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
+          # у dev візьме GHCR_* із env dev, у main — з env main
           username: ${{ secrets.GHCR_USER }}
           password: ${{ secrets.GHCR_WRITE_TOKEN }}
+      # ...
 
-      - name: Build & Push :prod
-        uses: docker/build-push-action@v6
-        with:
-          context: .                   # змінити на ./backend якщо Dockerfile у підтеці
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:prod
-
-  deploy-on-prod:
-    needs: build-and-push-prod
-    runs-on: [self-hosted, Linux, X64]   # твій той самий runner
-    environment: main                    # бере secrets із env "main"
+  deploy:
+    needs: build-and-push
+    runs-on: [self-hosted, Linux, X64]
+    if: github.ref_name == 'main'              # деплой тільки для main
+    environment:
+      name: main                                # або так само динамічно, але тут нам потрібен саме main
     steps:
-      - name: Deploy via runner → prod
-        env:
-          GHCR_USER:  ${{ secrets.GHCR_USER }}          # потрібні тільки якщо образи приватні
-          GHCR_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
-          TARGET:     ${{ secrets.PROD_TARGET_HOST }}   # напр. dev@172.17.10.23
-        run: |
-          # якщо образи приватні — runner залогінить prod у GHCR,
-          # а далі на prod: compose pull/up для всіх сервісів (backend, frontend, nginx)
-          /opt/deploy/deploy-myapp.sh "${TARGET}"
+      - run: /opt/deploy/deploy-myapp.sh "${{ secrets.PROD_TARGET_HOST }}"
