@@ -51,18 +51,6 @@ jobs:
         echo "${{ secrets.RANER_SSH_KEY_B64 }}" | base64 -d | tr -d '\r' > ~/.ssh/id_ed25519_github
         chmod 600 ~/.ssh/id_ed25519_github
 
-        # Переконаймось, що ключ читається (покаже лише відбиток, не сам ключ)
-        ssh-keygen -lf ~/.ssh/id_ed25519_github
-
-        # known_hosts (можна замінити на StrictHostKeyChecking=no, якщо хочеш)
-        if command -v ssh-keyscan >/dev/null 2>&1; then
-          ssh-keyscan -H "${{ secrets.PROD_TARGET_HOST }}" >> ~/.ssh/known_hosts || true
-          chmod 644 ~/.ssh/known_hosts
-          echo "-o StrictHostKeyChecking=yes" > ~/.ssh/ssh_opts
-        else
-          echo "-o StrictHostKeyChecking=no" > ~/.ssh/ssh_opts
-        fi
-
     - name: Deploy via SSH
       shell: bash
       run: |
