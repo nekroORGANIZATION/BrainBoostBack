@@ -46,20 +46,38 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p ~/.ssh && chmod 700 ~/.ssh
-        # декодуємо приватний ключ із secret (однорядковий base64)
+        # відновлюємо приватний ключ із base64-секрету
         echo "${{ secrets.RANER_SSH_KEY_B64 }}" | base64 -d | tr -d '\r' > ~/.ssh/ga_ed25519
         chmod 600 ~/.ssh/ga_ed25519
-
+        # known_hosts (можна замінити на StrictHostKeyChecking=no)
+        if command -v ssh-keyscan >/dev/null 2>&1; then
+          ssh-keyscan -H "${{ secrets.PROD_TARGET_HOST }}" >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
+          echo "-o StrictHostKeyChecking=yes" > ~/.ssh/ssh_opts
+        else
+          echo "-o StrictHostKeyChecking=no" > ~/.ssh/ssh_opts
+        fi
 
     - name: Deploy via SSH
       shell: bash
       run: |
         set -euo pipefail
-        OPTS="$(cat ~/.ssh/ssh_opts)"
+        OPTS="$(tr '\n' ' ' < ~/.ssh/ssh_opts)"
         ssh -i ~/.ssh/ga_ed25519 -o IdentitiesOnly=yes $OPTS \
           "${{ secrets.RUNNER_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
-          "cd /opt/myapp && docker compose pull && docker compose up -d"
+          '
+            set -e
+            cd /opt/myapp
+            # логінимось у GHCR, якщо зберігаєш креденшали в .env на проді:
+            if [ -f .env ]; then set -a; . ./.env; set +a; fi
+            if [ -n "${GHCR_READ_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
+              echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
+            fi
+            docker compose pull
+            docker compose up -d
+          '
+
     - name: Cleanup SSH key
       if: always()
       run: |
-        shred -u ~/.ssh/id_ed25519_github || rm -f ~/.ssh/id_ed25519_github
+        shred -u ~/.ssh/ga_ed25519 || rm -f ~/.ssh/ga_ed25519
