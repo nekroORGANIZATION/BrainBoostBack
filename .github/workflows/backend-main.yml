@@ -36,7 +36,7 @@ jobs:
           build-args: |
             BUILD_SHA=${{ github.sha }}
 
-  deploy-to-prod:
+   deploy-to-prod:
     needs: build-and-push
     runs-on: self-hosted
     environment: main
@@ -44,11 +44,22 @@ jobs:
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.RANER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 700 ~/.ssh
+          # коректно зберігаємо багаторядковий ключ (без ламання переносів)
+          printf "%s" "${{ secrets.RANER_SSH_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          # (опціонально, але безпечніше) додамо ключ хоста, щоб не вимикати перевірку
+          ssh-keyscan -H "${{ secrets.PROD_TARGET_HOST }}" >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
 
       - name: Deploy via SSH
+        # якщо не хочеш keyscan, можеш повернути StrictHostKeyChecking=no
         run: |
-          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes \
             ${{ secrets.RUNNER_USER }}@${{ secrets.PROD_TARGET_HOST }} \
             "cd /opt/myapp && docker compose pull && docker compose up -d"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          shred -u ~/.ssh/id_rsa || rm -f ~/.ssh/id_rsa
