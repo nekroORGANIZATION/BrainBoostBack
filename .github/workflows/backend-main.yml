@@ -41,35 +41,38 @@ jobs:
     runs-on: self-hosted
     environment: main
     steps:
-      - name: Prepare SSH key
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          # коректно зберігаємо багаторядковий ключ із Secrets
-          printf "%s" "${{ secrets.RANER_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          # якщо на раннері може не бути ssh-keyscan, не падаємо
-          if command -v ssh-keyscan >/dev/null 2>&1; then
-            ssh-keyscan -H "${{ secrets.PROD_TARGET_HOST }}" >> ~/.ssh/known_hosts || true
-            chmod 644 ~/.ssh/known_hosts
-            export SSH_CHECK="-o StrictHostKeyChecking=yes"
-          else
-            export SSH_CHECK="-o StrictHostKeyChecking=no"
-          fi
-          echo "$SSH_CHECK" > ~/.ssh/ssh_opts
+    - name: Prepare SSH key
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.ssh && chmod 700 ~/.ssh
 
-      - name: Deploy via SSH
-        shell: bash
-        run: |
-          set -euo pipefail
-          SSH_CHECK_OPTS="$(cat ~/.ssh/ssh_opts)"
-          ssh -i ~/.ssh/id_rsa -o IdentitiesOnly=yes $SSH_CHECK_OPTS \
-            "${{ secrets.RUNNER_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
-            "cd /opt/myapp && docker compose pull && docker compose up -d"
+        # Декодуємо ключ із Secret (1 рядок base64) і прибираємо CRLF
+        echo "${{ secrets.RANER_SSH_KEY_B64 }}" | base64 -d | tr -d '\r' > ~/.ssh/id_ed25519_github
+        chmod 600 ~/.ssh/id_ed25519_github
 
-      - name: Cleanup SSH key
-        if: always()
-        run: |
-          shred -u ~/.ssh/id_rsa || rm -f ~/.ssh/id_rsa
+        # Переконаймось, що ключ читається (покаже лише відбиток, не сам ключ)
+        ssh-keygen -lf ~/.ssh/id_ed25519_github
+
+        # known_hosts (можна замінити на StrictHostKeyChecking=no, якщо хочеш)
+        if command -v ssh-keyscan >/dev/null 2>&1; then
+          ssh-keyscan -H "${{ secrets.PROD_TARGET_HOST }}" >> ~/.ssh/known_hosts || true
+          chmod 644 ~/.ssh/known_hosts
+          echo "-o StrictHostKeyChecking=yes" > ~/.ssh/ssh_opts
+        else
+          echo "-o StrictHostKeyChecking=no" > ~/.ssh/ssh_opts
+        fi
+
+    - name: Deploy via SSH
+      shell: bash
+      run: |
+        set -euo pipefail
+        OPTS="$(cat ~/.ssh/ssh_opts)"
+        ssh -i ~/.ssh/id_ed25519_github -o IdentitiesOnly=yes $OPTS \
+          "${{ secrets.RUNNER_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
+          "cd /opt/myapp && docker compose pull && docker compose up -d"
+
+    - name: Cleanup SSH key
+      if: always()
+      run: |
+        shred -u ~/.ssh/id_ed25519_github || rm -f ~/.ssh/id_ed25519_github
