@@ -46,20 +46,19 @@ jobs:
       run: |
         set -euo pipefail
         mkdir -p ~/.ssh && chmod 700 ~/.ssh
+        # декодуємо приватний ключ із secret (однорядковий base64)
+        echo "${{ secrets.RANER_SSH_KEY_B64 }}" | base64 -d | tr -d '\r' > ~/.ssh/ga_ed25519
+        chmod 600 ~/.ssh/ga_ed25519
 
-        # Декодуємо ключ із Secret (1 рядок base64) і прибираємо CRLF
-        echo "${{ secrets.RANER_SSH_KEY_B64 }}" | base64 -d | tr -d '\r' > ~/.ssh/id_ed25519_github
-        chmod 600 ~/.ssh/id_ed25519_github
 
     - name: Deploy via SSH
       shell: bash
       run: |
         set -euo pipefail
         OPTS="$(cat ~/.ssh/ssh_opts)"
-        ssh -i ~/.ssh/id_ed25519_github -o IdentitiesOnly=yes $OPTS \
+        ssh -i ~/.ssh/ga_ed25519 -o IdentitiesOnly=yes $OPTS \
           "${{ secrets.RUNNER_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
           "cd /opt/myapp && docker compose pull && docker compose up -d"
-
     - name: Cleanup SSH key
       if: always()
       run: |
