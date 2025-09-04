@@ -10,6 +10,11 @@ env:
   OWNER: nekroorganization
   IMAGE_NAME: backend
   IMAGE_TAG: prod
+  BACKEND_SERVICE: backend
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   build-and-push:
@@ -41,43 +46,45 @@ jobs:
     runs-on: self-hosted
     environment: main
     steps:
-    - name: Prepare SSH key
-      shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p ~/.ssh && chmod 700 ~/.ssh
-        # відновлюємо приватний ключ із base64-секрету
-        echo "${{ secrets.RANER_SSH_KEY_B64 }}" | base64 -d | tr -d '\r' > ~/.ssh/ga_ed25519
-        chmod 600 ~/.ssh/ga_ed25519
-        # known_hosts (можна замінити на StrictHostKeyChecking=no)
-        if command -v ssh-keyscan >/dev/null 2>&1; then
-          ssh-keyscan -H "${{ secrets.PROD_TARGET_HOST }}" >> ~/.ssh/known_hosts || true
-          chmod 644 ~/.ssh/known_hosts
-          echo "-o StrictHostKeyChecking=yes" > ~/.ssh/ssh_opts
-        else
-          echo "-o StrictHostKeyChecking=no" > ~/.ssh/ssh_opts
-        fi
+      - name: Prepare SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}"
+          KEYFILE="${{ runner.temp }}/prod_ssh_key"
+          # приватний ключ у багаторядковому OpenSSH форматі
+          printf '%s\n' "${{ secrets.PROD_KEY }}" | sed 's/\r$//' > "$KEYFILE"
+          chmod 600 "$KEYFILE"
+          PORT="${{ secrets.PROD_SSH_PORT }}"
+          [ -z "$PORT" ] && PORT=22
+          echo "$PORT" > "${{ runner.temp }}/ssh_port"
 
-    - name: Deploy via SSH
-      shell: bash
-      run: |
-        set -euo pipefail
-        OPTS="$(tr '\n' ' ' < ~/.ssh/ssh_opts)"
-        ssh -i ~/.ssh/ga_ed25519 -o IdentitiesOnly=yes $OPTS \
-          "${{ secrets.RUNNER_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
-          '
-            set -e
-            cd /opt/myapp
-            # логінимось у GHCR, якщо зберігаєш креденшали в .env на проді:
-            if [ -f .env ]; then set -a; . ./.env; set +a; fi
-            if [ -n "${GHCR_READ_TOKEN:-}" ] && [ -n "${GHCR_USER:-}" ]; then
-              echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
-            fi
-            docker compose pull
-            docker compose up -d
-          '
+      - name: Deploy via SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYFILE="${{ runner.temp }}/prod_ssh_key"
+          PORT="$(cat "${{ runner.temp }}/ssh_port")"
+          ssh -i "$KEYFILE" -p "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
+            GHCR_USER='${{ secrets.GHCR_USER }}' \
+            GHCR_READ_TOKEN='${{ secrets.GHCR_READ_TOKEN }}' \
+            BACKEND_SERVICE='${{ env.BACKEND_SERVICE }}' \
+            bash -s <<'EOF'
+set -euo pipefail
+cd /opt/myapp
 
-    - name: Cleanup SSH key
-      if: always()
-      run: |
-        shred -u ~/.ssh/ga_ed25519 || rm -f ~/.ssh/ga_ed25519
+# логін у GHCR для pull (не падаємо, якщо вже залогінені)
+if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_READ_TOKEN:-}" ]; then
+  echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
+fi
+
+docker compose pull "$BACKEND_SERVICE"
+docker compose up -d "$BACKEND_SERVICE"
+docker image prune -f
+EOF
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f "${{ runner.temp }}/prod_ssh_key"
