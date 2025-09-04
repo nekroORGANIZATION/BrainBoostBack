@@ -3,6 +3,8 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.db import IntegrityError
+from rest_framework.permissions import IsAuthenticated
 
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -45,28 +47,45 @@ def _sanitize_test_for_student(test: Test, data: Dict[str, Any], *, shuffle_q: b
 def _respect_feedback_mode(test: Test, attempt: TestAttempt) -> Dict[str, Any]:
     """
     Формуємо відповідь після сабміту з урахуванням режиму показу фідбеку.
+    Повертає payload для фронту з:
+      - selected_option_ids (обрані студентом)
+      - correct_option_ids (правильні варіанти)
+      - is_correct, needs_manual, awarded балів
+      - breakdown по всіх питаннях
     show_feedback_mode: none | immediate | after_close
     """
     payload = TestAttemptSerializer(attempt).data
     mode = (test.show_feedback_mode or 'after_close').lower()
 
-    def _build_breakdown():
+    def _build_breakdown() -> List[Dict[str, Any]]:
         out = []
-        for aa in attempt.answers.select_related('question').prefetch_related('selected_options'):
-            item = {
-                "question": aa.question_id,
-                "type": aa.question.type,
+        for aa in attempt.answers.select_related('question').prefetch_related('selected_options', 'question__choices'):
+            q = aa.question
+            item: Dict[str, Any] = {
+                "question": q.id,
+                "type": q.type,
                 "awarded": float(aa.score_awarded or 0),
-                "max": float(aa.question.points),
+                "max": float(q.points),
                 "is_correct": aa.is_correct,
+                "needs_manual": aa.needs_manual,
             }
-            # Що саме показувати? Без розкриття правильних варіантів — лише обрана відповідь
+
+            # selected для варіантних типів
             if aa.selected_options.exists():
                 item["selected_option_ids"] = list(aa.selected_options.values_list('id', flat=True))
+            else:
+                item["selected_option_ids"] = []
+
+            # правильні варіанти для підсвітки
+            if q.type in ['single', 'multiple', 'true_false']:
+                item["correct_option_ids"] = list(q.choices.filter(is_correct=True).values_list('id', flat=True))
+
+            # для текстових/JSON типів
             if aa.free_text:
                 item["free_text"] = aa.free_text
             if aa.free_json:
                 item["free_json"] = aa.free_json
+
             out.append(item)
         return out
 
@@ -74,7 +93,7 @@ def _respect_feedback_mode(test: Test, attempt: TestAttempt) -> Dict[str, Any]:
     is_closed = bool(test.closes_at and now > test.closes_at)
 
     if mode == 'none':
-        # показуємо лише агрегати
+        # показуємо лише загальні бали
         return payload
 
     if mode == 'immediate':
@@ -85,7 +104,6 @@ def _respect_feedback_mode(test: Test, attempt: TestAttempt) -> Dict[str, Any]:
     if is_closed:
         payload["breakdown"] = _build_breakdown()
     return payload
-
 
 # ---------- CRUD для тестів (для викладача) ----------
 
@@ -160,32 +178,52 @@ class TestPublicDetailView(APIView):
 
 class StartAttemptView(APIView):
     """
-    Старт спроби. Перевіряє доступ, вікно доступу, ліміт спроб.
+    Старт спроби тесту для студента через JWT.
     """
-    permission_classes = [permissions.IsAuthenticated, HasCourseAccess]
+    permission_classes = [IsAuthenticated, HasCourseAccess]
 
     def get_course(self, obj: Test):
         return obj.lesson.course
 
     def post(self, request, pk: int):
         user = request.user
-        test = get_object_or_404(Test.objects.select_related('lesson__course'), pk=pk, status=Test.Status.PUBLISHED)
+        test = get_object_or_404(
+            Test.objects.select_related('lesson__course'),
+            pk=pk,
+            status=Test.Status.PUBLISHED
+        )
 
-        # Розклад доступу
         now = timezone.now()
+        # Перевірка часу доступу
         if (test.opens_at and now < test.opens_at) or (test.closes_at and now > test.closes_at):
             return Response({"detail": "Тест недоступний за розкладом."}, status=403)
 
         # Ліміт спроб
-        last_no = TestAttempt.objects.filter(test=test, user=user).aggregate(Max('attempt_no'))['attempt_no__max'] or 0
+        last_no = TestAttempt.objects.filter(test=test, user=user).aggregate(
+            Max('attempt_no')
+        )['attempt_no__max'] or 0
         next_no = last_no + 1
         if test.attempts_allowed and next_no > test.attempts_allowed:
             return Response({"detail": "Вичерпано кількість спроб."}, status=403)
 
-        attempt = TestAttempt.objects.create(
-            test=test, user=user, attempt_no=next_no, pass_mark=float(test.pass_mark)
-        )
-        return Response(TestAttemptSerializer(attempt).data, status=201)
+        # Створюємо спробу із захистом від дублювання
+        try:
+            attempt = TestAttempt.objects.create(
+                test=test,
+                user=user,
+                attempt_no=next_no,
+                pass_mark=float(test.pass_mark or 0)
+            )
+        except IntegrityError:
+            # Якщо спроба вже існує (унікальний constraint), повертаємо існуючу
+            attempt = TestAttempt.objects.filter(
+                test=test, user=user, attempt_no=next_no
+            ).first()
+            if not attempt:
+                return Response({"detail": "Не вдалося створити спробу."}, status=500)
+
+        serializer = TestAttemptSerializer(attempt)
+        return Response(serializer.data, status=201)
 
 
 # ---------- Сабміт відповідей ----------
@@ -325,3 +363,29 @@ class SubmitAttemptView(APIView):
 
         # Відповідь з урахуванням режиму показу фідбеку
         return Response(_respect_feedback_mode(test, attempt), status=200)
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from lesson.models import Lesson
+from .models import Test
+from .serializers import TestSerializer
+from .views import _sanitize_test_for_student
+
+@api_view(['GET'])
+def lesson_test_by_lesson(request, lesson_id: int):
+    """
+    Повертає перший тест уроку для студента.
+    """
+    try:
+        lesson = Lesson.objects.get(pk=lesson_id)
+    except Lesson.DoesNotExist:
+        return Response({'detail': 'Lesson not found.'}, status=404)
+
+    test = lesson.tests.filter(status=Test.Status.PUBLISHED).first()
+    if not test:
+        return Response({'detail': 'Test not found or not published.'}, status=404)
+
+    data = TestSerializer(test).data
+    data = _sanitize_test_for_student(test, data, shuffle_q=True, shuffle_o=True)
+    return Response(data, status=200)

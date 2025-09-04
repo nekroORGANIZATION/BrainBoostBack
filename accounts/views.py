@@ -19,6 +19,176 @@ from .serializers import TeacherRegisterSerializer, RegisterSerializer
 
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from django.db.models import Q
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.apps import apps
+
+from course.models import Course
+from lesson.models import Lesson, LessonProgress
+from accounts.models import Certificate
+from accounts.services.certificates import issue_or_resend_certificate
+
+
+# ---------- Helpers ----------
+
+def _get_coursesdone_model():
+    """
+    Пытаемся найти модель в app `course`:
+    - CoursesDone
+    - CourseDone
+    - PurchasedCourse (fallback)
+    """
+    for name in ("CoursesDone", "CourseDone", "PurchasedCourse"):
+        try:
+            return apps.get_model("course", name)
+        except Exception:
+            continue
+    return None
+
+
+def _coursesdone_completed_filter():
+    return Q(completed_at__isnull=False)
+
+
+def _coursesdone_user_filter(user):
+    uid = getattr(user, "id", None)
+    return Q(user=user) | Q(user_id=uid)
+
+
+def _coursesdone_course_filter(course):
+    cid = getattr(course, "id", None)
+    return Q(course=course) | Q(course_id=cid)
+
+
+def _extract_score(obj):
+    """
+    Достаём итоговый балл/процент из наиболее вероятных полей.
+    Возвращаем int или None.
+    """
+    for field in ("final_score", "score", "result_percent", "grade"):
+        if hasattr(obj, field):
+            val = getattr(obj, field)
+            if val is None:
+                return None
+            try:
+                return int(val)
+            except Exception:
+                try:
+                    return round(float(val))
+                except Exception:
+                    return None
+    return None
+
+
+def _is_course_completed_for_user(user, course) -> bool:
+    """
+    1) Основной источник — таблица CoursesDone (app course).
+    2) Фолбек — все опубликованные уроки завершены (LessonProgress).
+    """
+    CD = _get_coursesdone_model()
+    if CD is not None:
+        q = CD.objects.filter(_coursesdone_user_filter(user) & _coursesdone_course_filter(course))
+        q = q.filter(_coursesdone_completed_filter())
+        if q.exists():
+            return True
+
+    # --- fallback через LessonProgress ---
+    lessons_qs = Lesson.objects.filter(
+        status=Lesson.Status.PUBLISHED
+    ).filter(
+        Q(module__course_id=course.id) | Q(module__isnull=True, course_id=course.id)
+    )
+    total = lessons_qs.count()
+    if total == 0:
+        return False
+    done = LessonProgress.objects.filter(
+        user=user, lesson__in=lessons_qs, state=LessonProgress.State.COMPLETED
+    ).count()
+    return done == total
+
+
+def _get_completed_courses_for_user(user):
+    """
+    Возвращает список словарей {course: Course, score: int|None}
+    из CoursesDone. Если таблицы нет — пусто.
+    """
+    CD = _get_coursesdone_model()
+    if CD is None:
+        return []
+
+    rows = CD.objects.filter(_coursesdone_user_filter(user)).filter(_coursesdone_completed_filter())
+    out = []
+    for row in rows.select_related("course"):
+        course = getattr(row, "course", None)
+        if course is None:
+            cid = getattr(row, "course_id", None)
+            if cid:
+                try:
+                    course = Course.objects.get(pk=cid)
+                except Course.DoesNotExist:
+                    course = None
+        if course is None:
+            continue
+        out.append({"course": course, "score": _extract_score(row)})
+    return out
+
+
+# ---------- Views ----------
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def my_completed_courses(request):
+    """
+    Возвращает завершённые курсы для текущего пользователя на основе CoursesDone,
+    плюс признак и серийник сертификата, если он уже создан.
+    """
+    items = []
+    completed = _get_completed_courses_for_user(request.user)
+
+    # Если CoursesDone отсутствует — можно опционально сделать fallback по LessonProgress,
+    # но чтобы не нагружать, оставим пусто, когда таблицы нет.
+    for row in completed:
+        course = row["course"]
+        cert = Certificate.objects.filter(user=request.user, course=course, is_revoked=False).first()
+        items.append({
+            "id": course.id,
+            "title": getattr(course, 'title', str(course)),
+            "certificate_exists": bool(cert and cert.pdf),
+            "certificate_serial": cert.serial if cert else None,
+        })
+    return Response({"results": items}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def issue_certificate_for_course(request, course_id: int):
+    try:
+        course = Course.objects.get(pk=course_id)
+    except Course.DoesNotExist:
+        return Response({"detail": "Курс не знайдено."}, status=404)
+
+    # Проверяем завершённость и вытягиваем возможный финальный балл
+    completed_rows = _get_completed_courses_for_user(request.user)
+    row = next((r for r in completed_rows if getattr(r["course"], "id", None) == course.id), None)
+
+    if row is None:
+        # На всякий случай доп.проверка через _is_course_completed_for_user (fallback)
+        if not _is_course_completed_for_user(request.user, course):
+            return Response({"detail": "Курс ще не завершено."}, status=400)
+
+    final_score = None if row is None else row.get("score")
+
+    cert = issue_or_resend_certificate(request.user, course)
+    return Response({
+        "ok": True,
+        "serial": cert.serial,
+        "exists": bool(cert.pdf),
+    }, status=200)
+
+
+
 
 class GoogleLoginView(APIView):
     def post(self, request):

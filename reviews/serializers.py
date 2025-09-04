@@ -17,7 +17,7 @@ class ReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         fields = [
-            'id', 'course', 'rating', 'text', 'tags', 'video_url',
+            'id', 'course', 'rating', 'text', 'video_url',
             'user_name', 'user_avatar', 'images',
             'created_at'
         ]
@@ -32,7 +32,7 @@ class MyReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         fields = [
-            'id', 'course', 'rating', 'text', 'tags', 'video_url',
+            'id', 'course', 'rating', 'text', 'video_url',
             'status', 'moderation_reason',
             'created_at', 'updated_at',
             'user_name', 'user_avatar', 'images',
@@ -42,15 +42,15 @@ class MyReviewSerializer(serializers.ModelSerializer):
 class ReviewCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
-        fields = ['course', 'rating', 'text', 'tags', 'video_url']
+        fields = ['course', 'rating', 'text', 'video_url']  # ← без tags
 
     def validate(self, attrs):
         user = self.context['request'].user
         course = attrs.get('course')
-        exists = Review.objects.filter(user=user, course=course).exists()
-        if exists:
+        if Review.objects.filter(user=user, course=course).exists():
             raise serializers.ValidationError("Ви вже залишали відгук до цього курсу.")
-        if not 1 <= attrs.get('rating', 0) <= 5:
+        rating = attrs.get('rating', 0)
+        if not 1 <= rating <= 5:
             raise serializers.ValidationError("Рейтинг має бути від 1 до 5.")
         return attrs
 
@@ -68,7 +68,8 @@ class ReviewModerationSerializer(serializers.ModelSerializer):
         fields = ['status', 'moderation_reason']
 
     def validate_status(self, v):
-        if v not in (Review.Status.APPROVED, Review.Status.REJECTED, Review.Status.PENDING):
+        allowed = {Review.Status.APPROVED, Review.Status.REJECTED, Review.Status.PENDING}
+        if v not in allowed:
             raise serializers.ValidationError("Неприпустимий статус.")
         return v
 
@@ -91,7 +92,7 @@ class ReviewAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = Review
         fields = [
-            "id","course","rating","text","tags","video_url",
+            "id","course","rating","text","video_url",
             "status","moderation_reason","created_at",
             "user_name","user_avatar","images",
         ]
