@@ -64,24 +64,25 @@ jobs:
         run: |
           set -euo pipefail
           KEYFILE="${{ runner.temp }}/prod_ssh_key"
-          PORT="$(cat "${{ runner.temp }}/ssh_port")"
-          ssh -i "$KEYFILE" -p "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
-            "${{ secrets.PROD_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
-            GHCR_USER='${{ secrets.GHCR_USER }}' \
-            GHCR_READ_TOKEN='${{ secrets.GHCR_READ_TOKEN }}' \
-            SERVICE_NAME='${{ env.SERVICE_NAME }}' \
-            bash -s <<'EOF'
-            set -euo pipefail
-            cd /opt/myapp
+          PORT="${{ secrets.PROD_SSH_PORT }}"
+          [ -z "$PORT" ] && PORT=22
 
-            if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_READ_TOKEN:-}" ]; then
-            echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
-            fi
-
-            docker compose pull "$SERVICE_NAME"
-            docker compose up -d "$SERVICE_NAME"
-            docker image prune -f
-            EOF
+          # Складаємо скрипт і передаємо його на stdin віддаленому bash (жодних EOF)
+          {
+            echo 'set -euo pipefail'
+            echo 'cd /opt/myapp'
+            echo 'if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_READ_TOKEN:-}" ]; then'
+            echo '  echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true'
+            echo 'fi'
+            echo 'docker compose pull "$SERVICE_NAME"'
+            echo 'docker compose up -d "$SERVICE_NAME"'
+            echo 'docker image prune -f'
+          } | ssh -i "$KEYFILE" -p "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no \
+                "${{ secrets.PROD_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
+                GHCR_USER='${{ secrets.GHCR_USER }}' \
+                GHCR_READ_TOKEN='${{ secrets.GHCR_READ_TOKEN }}' \
+                SERVICE_NAME='${{ env.SERVICE_NAME }}' \
+                bash -s
 
       - name: Cleanup SSH key
         if: always()
