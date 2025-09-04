@@ -10,3 +10,5 @@ Pillow
 dj_rest_auth
 django-allauth
 django-filter
+qrcode[pil]
+reportlab
