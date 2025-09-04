@@ -10,7 +10,7 @@ env:
   OWNER: nekroorganization
   IMAGE_NAME: backend
   IMAGE_TAG: prod
-  BACKEND_SERVICE: backend
+  SERVICE_NAME: backend
 
 permissions:
   contents: read
@@ -56,7 +56,7 @@ jobs:
           printf '%s\n' "${{ secrets.PROD_KEY }}" | sed 's/\r$//' > "$KEYFILE"
           chmod 600 "$KEYFILE"
           PORT="${{ secrets.PROD_SSH_PORT }}"
-          [ -z "$PORT" ] && PORT=22
+          if [ -z "$PORT" ]; then PORT=22; fi
           echo "$PORT" > "${{ runner.temp }}/ssh_port"
 
       - name: Deploy via SSH
@@ -69,20 +69,19 @@ jobs:
             "${{ secrets.PROD_USER }}@${{ secrets.PROD_TARGET_HOST }}" \
             GHCR_USER='${{ secrets.GHCR_USER }}' \
             GHCR_READ_TOKEN='${{ secrets.GHCR_READ_TOKEN }}' \
-            BACKEND_SERVICE='${{ env.BACKEND_SERVICE }}' \
+            SERVICE_NAME='${{ env.SERVICE_NAME }}' \
             bash -s <<'EOF'
-set -euo pipefail
-cd /opt/myapp
+            set -euo pipefail
+            cd /opt/myapp
 
-# логін у GHCR для pull (не падаємо, якщо вже залогінені)
-if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_READ_TOKEN:-}" ]; then
-  echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
-fi
+            if [ -n "${GHCR_USER:-}" ] && [ -n "${GHCR_READ_TOKEN:-}" ]; then
+            echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin || true
+            fi
 
-docker compose pull "$BACKEND_SERVICE"
-docker compose up -d "$BACKEND_SERVICE"
-docker image prune -f
-EOF
+            docker compose pull "$SERVICE_NAME"
+            docker compose up -d "$SERVICE_NAME"
+            docker image prune -f
+            EOF
 
       - name: Cleanup SSH key
         if: always()
