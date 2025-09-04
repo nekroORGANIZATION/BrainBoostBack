@@ -4,10 +4,11 @@ from .views import (
     ModuleListCreateView, ModuleDetailView, ModuleReorderView,
     LessonListCreateView, LessonDetailView, LessonReorderView, LessonContentReorderView, LessonPublishView,
     # student
-    LessonPublicDetailView, LessonProgressUpsertView,
+    LessonPublicDetailView, LessonProgressUpsertView, LessonPublicDetailViewById,
     # simple
-    SimpleLessonCreateView,
+    SimpleLessonCreateView, MyLessonsListView, LessonTheoryView, LessonsByCourseView
 )
+from . import views
 
 urlpatterns = [
     # новый эндпоинт для фронта
@@ -26,6 +27,14 @@ urlpatterns = [
     path('admin/lessons/<int:lesson_id>/contents/reorder/', LessonContentReorderView.as_view(), name='lesson-content-reorder'),
 
     # Public (student)
-    path('public/lessons/<slug:slug>/', LessonPublicDetailView.as_view(), name='lesson-public-detail'),
+    path('public/lessons/<int:id>/', LessonPublicDetailView.as_view(), name='lesson-public-detail'),
+    path('public/lessons/id/<int:lesson_id>/', LessonPublicDetailViewById.as_view(), name='lesson-public-detail-id'),
+    path('lessons/<int:lesson_id>/theory/', views.lesson_theory),
     path('progress/<int:lesson_id>/', LessonProgressUpsertView.as_view(), name='lesson-progress-upsert'),
+
+    path('lessons/mine/', MyLessonsListView.as_view(), name='lesson-mine'),
+    path('courses/<int:course_id>/lessons/', LessonsByCourseView.as_view(), name='course-lessons'),
+    # Теорія уроку
+    path('lesson/theories/<int:lesson_id>/', LessonTheoryView.as_view(), name='lesson-theory-list'),
+    path('lesson/theories/<int:lesson_id>/<int:theory_id>/', LessonTheoryView.as_view(), name='lesson-theory-detail'),
 ]

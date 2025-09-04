@@ -1,8 +1,36 @@
 from typing import Any, Dict
 from rest_framework import serializers
 from django.db.models import Count, Avg
-from .models import Course, Category, PurchasedCourse, Comment
+from .models import Course, Category, PurchasedCourse, Comment, Wishlist, Language
 from django.conf import settings
+
+
+class CategoryAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ["id", "name"]
+
+class LanguageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Language
+        fields = ["id", "name"]
+
+
+class WishlistCourseMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Course
+        fields = ("id", "title", "image", "price", "rating")  # подгони поля под свою модель
+
+class WishlistSerializer(serializers.ModelSerializer):
+    course = WishlistCourseMiniSerializer(read_only=True)
+    course_id = serializers.PrimaryKeyRelatedField(
+        queryset=Course.objects.all(), write_only=True, source="course"
+    )
+
+    class Meta:
+        model = Wishlist
+        fields = ("id", "course", "course_id", "created_at")
+        read_only_fields = ("id", "created_at")
 
 
 class CategorySerializer(serializers.ModelSerializer):

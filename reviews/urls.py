@@ -8,6 +8,7 @@ from .views import (
     # NEW:
     ReviewAdminListAPIView,
     ReviewPendingListAPIView,
+    ReviewRetrieveDestroyAPIView,
 )
 
 urlpatterns = [
@@ -20,5 +21,6 @@ urlpatterns = [
     # NEW:
     path('admin/', ReviewAdminListAPIView.as_view(), name='review-admin-list'),
     path('pending/', ReviewPendingListAPIView.as_view(), name='review-pending-list'),
+    path('<int:pk>/', ReviewRetrieveDestroyAPIView.as_view(), name='review-detail-destroy'),
 ]
 

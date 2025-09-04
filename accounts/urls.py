@@ -4,6 +4,8 @@ from .views import RegisterView, LogoutView, UserProfileView, ResetPasswordView,
 
 from .views import TeacherRegisterView
 
+from accounts.views import my_completed_courses, issue_certificate_for_course
+
 
 urlpatterns = [
     path('api/register/', RegisterView.as_view(), name='register'),
@@ -16,4 +18,7 @@ urlpatterns = [
     path('api/google-login/', GoogleLoginView.as_view(), name='google-login'),
 
     path('logout/', LogoutView.as_view(), name='logout'),
+
+    path('certificates/my-completed-courses/', my_completed_courses, name='acc-my-completed-courses'),
+    path('certificates/issue/<int:course_id>/', issue_certificate_for_course, name='acc-issue-certificate'),
 ]

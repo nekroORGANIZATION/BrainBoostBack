@@ -50,3 +50,10 @@ class IsCourseAuthorOrStaff(BasePermission):
                 except Course.DoesNotExist:
                     return False
         return True
+
+
+class IsTeacherOrAdmin(BasePermission):
+    def has_permission(self, request, view):
+        u = request.user
+        return bool(u and u.is_authenticated and (getattr(u, 'is_superuser', False) or getattr(u, 'is_teacher', False)))
+    

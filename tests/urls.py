@@ -6,6 +6,7 @@ from .views import (
     StartAttemptView,
     SubmitAttemptView,
 )
+from . import views
 
 urlpatterns = [
     # CRUD для викладача
@@ -16,4 +17,5 @@ urlpatterns = [
     path('<int:pk>/public/', TestPublicDetailView.as_view(), name='test-public'),
     path('<int:pk>/attempts/start/', StartAttemptView.as_view(), name='attempt-start'),
     path('<int:pk>/attempts/<int:attempt_id>/submit/', SubmitAttemptView.as_view(), name='attempt-submit'),
+    path('lessons/<int:lesson_id>/test/', views.lesson_test_by_lesson, name='lesson-test'),
 ]

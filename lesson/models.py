@@ -32,7 +32,7 @@ class Lesson(models.Model):
     module         = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name='lessons')
 
     title          = models.CharField(max_length=200)
-    slug           = models.SlugField(max_length=220, unique=True)
+    slug = models.SlugField(max_length=255, unique=True, null=True, blank=True)
 
     summary        = models.TextField(blank=True)
     order          = models.PositiveIntegerField(default=0, db_index=True)
@@ -77,7 +77,7 @@ class LessonContent(models.Model):
 
     lesson   = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='contents')
     type     = models.CharField(max_length=16, choices=Type.choices)
-    data     = models.JSONField(default=dict, blank=True)  # {text, url, language, items, ...}
+    data     = models.JSONField(default=dict, blank=True)
     order    = models.PositiveIntegerField(default=0, db_index=True)
     is_hidden= models.BooleanField(default=False)
 
@@ -90,9 +90,6 @@ class LessonContent(models.Model):
 
 
 class LessonProgress(models.Model):
-    """
-    Прогрес користувача по уроку.
-    """
     class State(models.TextChoices):
         NOT_STARTED = 'not_started', 'Not started'
         STARTED     = 'started',     'Started'
@@ -101,6 +98,7 @@ class LessonProgress(models.Model):
     user        = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lesson_progress')
     lesson      = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='progress')
     state       = models.CharField(max_length=16, choices=State.choices, default=State.NOT_STARTED)
+    result_percent = models.IntegerField(null=True, blank=True)
     started_at  = models.DateTimeField(null=True, blank=True)
     completed_at= models.DateTimeField(null=True, blank=True)
     updated_at  = models.DateTimeField(auto_now=True)

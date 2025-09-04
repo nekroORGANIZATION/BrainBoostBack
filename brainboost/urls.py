@@ -29,7 +29,7 @@ urlpatterns = [
     path('courses/all/', include('courses_list.urls')),
     path('api/lesson/', include('lesson.urls')),
     path('api/ai/', include('ai.urls')),
-    path('payments/', include('payments.urls')),
+    path('api/payments/', include('payments.urls')),
     path('admin_panel/api/', include('admin_panel.urls')),
     path('api/tests/', include('tests.urls')),
 
@@ -38,7 +38,11 @@ urlpatterns = [
     path('api/auth/social/', include('allauth.socialaccount.urls')),
     path('api/contacts/', include('contacts.urls')),
     path('api/reviews/', include('reviews.urls')),
+    path('api/', include('stories.urls')),
 
+    path("api/tips/", include("tips.urls")),
+
+    path('api/chat/', include('chat.urls')),
 ]
 
 if settings.DEBUG:
