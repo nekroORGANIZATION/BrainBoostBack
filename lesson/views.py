@@ -6,6 +6,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import models
 
+from rest_framework import generics, permissions, parsers
+
 from rest_framework import generics, permissions, status, filters
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,6 +30,35 @@ from .permissions import IsTeacherOrAdmin
 
 from django.db.models import Exists, OuterRef, Subquery
 from .serializers import LessonPublicListWithProgressSerializer
+
+
+
+# ===================================================================
+class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /api/lesson/admin/lessons/<pk>/
+    PATCH  /api/lesson/admin/lessons/<pk>/
+    PUT    /api/lesson/admin/lessons/<pk>/
+    DELETE /api/lesson/admin/lessons/<pk>/
+
+    Доступ: автор курса (к которому принадлежит урок) или staff/superuser.
+    Поддерживает JSON и multipart/form-data (для cover_image).
+    """
+    serializer_class = LessonSerializer
+    permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
+    parser_classes = [parsers.JSONParser, parsers.FormParser, parsers.MultiPartParser]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Lesson.objects.select_related('course', 'module').prefetch_related('contents')
+        # Ограничим выборку для не-админов своими курсами
+        if not (getattr(user, 'is_superuser', False) or getattr(user, 'is_staff', False)):
+            qs = qs.filter(course__author_id=user.id)
+        return qs
+
+    # Чтобы IsCourseAuthorOrStaff мог корректно проверить объектные права
+    def get_course(self, obj: Lesson):
+        return obj.course
 
 
 # ---------- Helpers ----------

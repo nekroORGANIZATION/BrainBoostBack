@@ -6,7 +6,7 @@ from .views import (
     # student
     LessonPublicDetailView, LessonProgressUpsertView, LessonPublicDetailViewById,
     # simple
-    SimpleLessonCreateView, MyLessonsListView, LessonTheoryView, LessonsByCourseView
+    SimpleLessonCreateView, MyLessonsListView, LessonTheoryView, LessonsByCourseView, LessonDetailView
 )
 from . import views
 
@@ -37,4 +37,6 @@ urlpatterns = [
     # Теорія уроку
     path('lesson/theories/<int:lesson_id>/', LessonTheoryView.as_view(), name='lesson-theory-list'),
     path('lesson/theories/<int:lesson_id>/<int:theory_id>/', LessonTheoryView.as_view(), name='lesson-theory-detail'),
+
+    path('admin/lessons/<int:pk>/', LessonDetailView.as_view(), name='lesson-detail'),
 ]

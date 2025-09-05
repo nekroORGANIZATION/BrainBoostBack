@@ -1,8 +1,58 @@
 from typing import Any, Dict
 from rest_framework import serializers
 from django.db.models import Count, Avg
-from .models import Course, Category, PurchasedCourse, Comment, Wishlist, Language
+from .models import Course, Category, PurchasedCourse, Comment, Wishlist, Language, Comment
 from django.conf import settings
+
+# ===============================================================
+class CommentAuthorMiniSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    username = serializers.CharField(read_only=True)
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = CommentAuthorMiniSerializer(source='author', read_only=True)
+    course = serializers.PrimaryKeyRelatedField(read_only=True)
+    parent = serializers.PrimaryKeyRelatedField(queryset=Comment.objects.all(), allow_null=True, required=False)
+
+    class Meta:
+        model = Comment
+        fields = [
+            'id', 'course', 'author', 'text',
+            'parent', 'created_at', 'updated_at', 'is_edited',
+        ]
+        read_only_fields = ['id', 'course', 'author', 'created_at', 'updated_at', 'is_edited']
+
+    def validate_text(self, value: str):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Текст комментария не может быть пустым.')
+        if len(value) > 5000:
+            raise serializers.ValidationError('Слишком длинный комментарий (макс. 5000 символов).')
+        return value
+
+    def create(self, validated_data):
+        request = self.context['request']
+        course = self.context['course']     
+        validated_data['author'] = request.user
+        validated_data['course'] = course
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'text' in validated_data and validated_data['text'] != instance.text:
+            instance.is_edited = True
+        return super().update(instance, validated_data)
+
+
+class CommentListSerializer(serializers.ModelSerializer):
+    author_username = serializers.CharField(source='author.username', read_only=True)
+
+    class Meta:
+        model = Comment
+        fields = ['id', 'text', 'author_username', 'created_at', 'parent']
+        read_only_fields = fields
+# ===========================================================================
+
 
 
 class CategoryAdminSerializer(serializers.ModelSerializer):
