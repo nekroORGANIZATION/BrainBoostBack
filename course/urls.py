@@ -1,15 +1,48 @@
+# courses/urls.py
+
 from django.urls import path
 from .views import (
-    CourseListCreateView, CourseDetailView, CommentListCreateView,
-    CourseUpdateView, CourseDeleteView, CommentRetrieveUpdateDestroyView
+    CategoryListAPIView,
+    CourseListCreateAPIView, CourseDetailAPIView, CourseRetrieveUpdateDestroyByIDAPIView,
+    LanguageAdminListCreateAPIView,
+    UserPurchasedCoursesView, EnrollCourseView,
+    CommentListCreateView, CommentRetrieveUpdateDestroyView,
+    WishlistListCreateView, WishlistDeleteView, WishlistToggleView, LanguageListAPIView,
+    CategoryAdminDetailAPIView, CategoryAdminListCreateAPIView, LanguageAdminDetailAPIView
 )
 
 urlpatterns = [
-    path('', CourseListCreateView.as_view(), name='course-list-create'),
-    path('<int:pk>/', CourseDetailView.as_view(), name='course-detail'),
-    path('<int:pk>/edit/', CourseUpdateView.as_view(), name='course-edit'),
-    path('<int:pk>/delete/', CourseDeleteView.as_view(), name='course-delete'),
+    # Categories
+    path("categories/", CategoryListAPIView.as_view(), name="course-categories"),
+    path("languages/", LanguageListAPIView.as_view(), name="course-languages"),
 
-    path('<int:course_pk>/comments/', CommentListCreateView.as_view(), name='comment-list-create'),
-    path('<int:course_pk>/comments/<int:pk>/', CommentRetrieveUpdateDestroyView.as_view(), name='comment-detail'),
+    # Админ-панель (только для IsAdminUser)
+    path("admin/categories/", CategoryAdminListCreateAPIView.as_view(), name="admin-categories"),
+    path("admin/categories/<int:pk>/", CategoryAdminDetailAPIView.as_view(), name="admin-category-detail"),
+
+    path("admin/languages/", LanguageAdminListCreateAPIView.as_view(), name="admin-languages"),
+    path("admin/languages/<int:pk>/", LanguageAdminDetailAPIView.as_view(), name="admin-language-detail"),
+
+    # Courses list / by id
+    path("", CourseListCreateAPIView.as_view(), name="course-list"),
+    path("<int:pk>/", CourseRetrieveUpdateDestroyByIDAPIView.as_view(), name="course-detail-id"),
+
+    # ✅ Wishlist
+    path("wishlist/", WishlistListCreateView.as_view(), name="wishlist-list-create"),
+    path("me/wishlist/", WishlistListCreateView.as_view(), name="wishlist-list-create"),
+    path("me/wishlist/<int:course_id>/", WishlistDeleteView.as_view(), name="wishlist-delete"),
+    path("wishlist/toggle/", WishlistToggleView.as_view(), name="wishlist-toggle"),
+    path("wishlist/<int:course_id>/", WishlistDeleteView.as_view(), name="wishlist-delete"),
+
+    # Purchase / access
+    path("me/purchased/", UserPurchasedCoursesView.as_view(), name="course-purchased"),
+    path("<slug:slug>/enroll/", EnrollCourseView.as_view(), name="course-enroll-dev"),
+
+    # Comments
+    path("<slug:slug>/comments/", CommentListCreateView.as_view(), name="course-comments"),
+    path("<slug:slug>/comments/<int:pk>/", CommentRetrieveUpdateDestroyView.as_view(), name="course-comment-detail"),
+
+    # Detail / edit / delete by slug (в самом конце)
+    path("<slug:slug>/", CourseDetailAPIView.as_view(), name="course-detail"),
+    
 ]
