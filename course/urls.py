@@ -1,7 +1,9 @@
+# courses/urls.py
+
 from django.urls import path
 from .views import (
     CategoryListAPIView,
-    CourseListCreateAPIView, CourseDetailAPIView, CourseUpdateAPIView, CourseDeleteAPIView, CourseRetrieveUpdateByIDAPIView,
+    CourseListCreateAPIView, CourseDetailAPIView, CourseRetrieveUpdateDestroyByIDAPIView,
     LanguageAdminListCreateAPIView,
     UserPurchasedCoursesView, EnrollCourseView,
     CommentListCreateView, CommentRetrieveUpdateDestroyView,
@@ -23,9 +25,9 @@ urlpatterns = [
 
     # Courses list / by id
     path("", CourseListCreateAPIView.as_view(), name="course-list"),
-    path("<int:pk>/", CourseRetrieveUpdateByIDAPIView.as_view(), name="course-detail-id"),
+    path("<int:pk>/", CourseRetrieveUpdateDestroyByIDAPIView.as_view(), name="course-detail-id"),
 
-    # ✅ Wishlist (ставим выше, чтобы не съелось <slug:slug>/)
+    # ✅ Wishlist
     path("wishlist/", WishlistListCreateView.as_view(), name="wishlist-list-create"),
     path("me/wishlist/", WishlistListCreateView.as_view(), name="wishlist-list-create"),
     path("me/wishlist/<int:course_id>/", WishlistDeleteView.as_view(), name="wishlist-delete"),
@@ -42,6 +44,5 @@ urlpatterns = [
 
     # Detail / edit / delete by slug (в самом конце)
     path("<slug:slug>/", CourseDetailAPIView.as_view(), name="course-detail"),
-    path("<slug:slug>/edit/", CourseUpdateAPIView.as_view(), name="course-update"),
-    path("<slug:slug>/delete/", CourseDeleteAPIView.as_view(), name="course-delete"),
+    
 ]

@@ -389,3 +389,31 @@ def lesson_test_by_lesson(request, lesson_id: int):
     data = TestSerializer(test).data
     data = _sanitize_test_for_student(test, data, shuffle_q=True, shuffle_o=True)
     return Response(data, status=200)
+
+from django.http import JsonResponse
+from .models import Test  # або як називається твоя модель тесту
+
+def check_lesson_test(request, lesson_id):
+    exists = Test.objects.filter(lesson_id=lesson_id).exists()
+    return JsonResponse({"exists": exists})
+
+class CreateTestView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        lesson_id = request.data.get("lesson")
+        lesson = get_object_or_404(Lesson, pk=lesson_id)
+
+        # Перевірка прав
+        if lesson.course.author != request.user and not request.user.is_staff:
+            return Response({"detail": "Немає прав."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Якщо тест уже існує для уроку
+        if Test.objects.filter(lesson=lesson).exists():
+            return Response({"detail": "Тест уже існує."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = TestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        test = serializer.save()
+
+        return Response(TestSerializer(test).data, status=status.HTTP_201_CREATED)

@@ -1,11 +1,12 @@
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Avg
-from rest_framework import generics, permissions, status, filters, parsers
+from rest_framework import generics, permissions, status, filters, parsers, mixins, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly, IsAuthenticated
 from django.db import IntegrityError
+from rest_framework.decorators import action
 
 from .models import Course, Category, PurchasedCourse, Comment, Wishlist, Language
 from .serializers import (
@@ -14,6 +15,101 @@ from .serializers import (
     LanguageSerializer, CategoryAdminSerializer
 )
 from .permissions import IsCourseAuthorOrStaff
+
+from .models import Comment, Course
+from .serializers import CommentSerializer, CommentListSerializer
+from .permissions import IsAuthorOrAdmin
+
+# =============================================================================
+class CommentViewSet(mixins.ListModelMixin,
+                     mixins.CreateModelMixin,
+                     mixins.UpdateModelMixin,
+                     mixins.DestroyModelMixin,
+                     viewsets.GenericViewSet):
+    """
+    /api/comments/?course=<id>|?course_slug=<slug> — список и создание (POST)
+    /api/comments/<id>/ — detail/patch/delete
+    Дополнительно: /api/courses/<course_pk>/comments/ через extra_action
+    """
+    queryset = Comment.objects.select_related('author', 'course')
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return CommentListSerializer
+        return CommentSerializer
+
+    def _get_course_from_query(self):
+        course_id = self.request.query_params.get('course')
+        course_slug = self.request.query_params.get('course_slug')
+        if course_id:
+            return get_object_or_404(Course, pk=course_id)
+        if course_slug:
+            return get_object_or_404(Course, slug=course_slug)
+        return None
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # фильтр по курсу из query-параметров
+        course = self._get_course_from_query()
+        if course:
+            qs = qs.filter(course=course)
+        # можно добавить сортировки по ?ordering=created_at|-created_at
+        ordering = self.request.query_params.get('ordering')
+        if ordering in ('created_at', '-created_at'):
+            qs = qs.order_by(ordering)
+        return qs
+
+    def get_permissions(self):
+        if self.action in ('create',):
+            return [IsAuthenticated()]
+        if self.action in ('update', 'partial_update', 'destroy'):
+            return [IsAuthenticated(), IsAuthorOrAdmin()]
+        return [IsAuthenticatedOrReadOnly()]
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        # прокинем course в сериализатор при создании
+        course = self._get_course_from_query()
+        if self.action == 'create':
+            if not course:
+                # позволим ещё nested-роуту устанавливать course
+                # (если не найдено в query)
+                pass
+            ctx['course'] = course
+        return ctx
+
+    def perform_create(self, serializer):
+        course = self._get_course_from_query()
+        if not course:
+            # fallback для nested-роута: course из kwargs
+            course_pk = self.kwargs.get('course_pk') or self.kwargs.get('course_id')
+            course_slug = self.kwargs.get('course_slug')
+            if course_pk:
+                course = get_object_or_404(Course, pk=course_pk)
+            elif course_slug:
+                course = get_object_or_404(Course, slug=course_slug)
+        serializer.context['course'] = course
+        serializer.save()
+
+    @action(detail=False, methods=['get', 'post'], url_path=r'by-course/(?P<course_id>\d+)')
+    def by_course(self, request, course_id=None):
+        """
+        Альтернативный nested-роут:
+        GET/POST /api/comments/by-course/<course_id>/
+        """
+        course = get_object_or_404(Course, pk=course_id)
+        if request.method.lower() == 'get':
+            qs = self.get_queryset().filter(course=course)
+            page = self.paginate_queryset(qs)
+            ser = self.get_serializer(page or qs, many=True)
+            return self.get_paginated_response(ser.data) if page is not None else Response(ser.data)
+        # POST
+        self.check_permissions(request)
+        serializer = CommentSerializer(data=request.data, context={'request': request, 'course': course})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 ####    =======================================================================
@@ -182,22 +278,27 @@ class CourseUpdateAPIView(generics.UpdateAPIView):
 
 from rest_framework import parsers
 
-class CourseRetrieveUpdateByIDAPIView(generics.RetrieveUpdateAPIView):
+class CourseRetrieveUpdateDestroyByIDAPIView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /courses/<int:pk>/       — публічний перегляд по ID
+    PATCH  /courses/<int:pk>/       — оновлення по ID (автор/стад)
+    DELETE /courses/<int:pk>/       — видалення по ID (автор/стад)
+
+    ⚠️ Перегляд по slug як і раніше: GET /courses/<slug:slug>/
+    """
     queryset = Course.objects.select_related("category", "author").all()
     lookup_field = "pk"
     parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
 
+    def get_permissions(self):
+        # Перегляд — відкритий; зміни — лише автор/стад
+        if self.request.method in ("GET",):
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated(), IsCourseAuthorOrStaff()]
+
     def get_serializer_class(self):
-        if self.request.method == "GET":
-            return CourseDetailSerializer  # детальний серіалізатор для перегляду
-        return CourseCreateUpdateSerializer  # для оновлення
-
-
-class CourseDeleteAPIView(generics.DestroyAPIView):
-    queryset = Course.objects.all()
-    serializer_class = CourseCreateUpdateSerializer
-    permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
-    lookup_field = "slug"
+        # GET → детальний серіалізатор; PATCH/PUT/DELETE → create/update серіалізатор
+        return CourseDetailSerializer if self.request.method == "GET" else CourseCreateUpdateSerializer
 
 
 # -------- Покупки / Доступ --------

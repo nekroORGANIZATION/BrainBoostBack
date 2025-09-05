@@ -4,7 +4,122 @@ from django.db import transaction
 from rest_framework import serializers
 from .models import Module, Lesson, LessonContent, LessonProgress
 
-# -------- Module --------
+
+# ============================================================================================
+
+class LessonContentSerializer(serializers.ModelSerializer):
+    """
+    Блочний контент уроку. Минимально необходим для редактирования.
+    """
+    id = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = LessonContent
+        fields = ['id', 'type', 'data', 'order', 'is_hidden']
+
+
+class LessonSerializer(serializers.ModelSerializer):
+    """
+    Сериализатор урока с возможностью редактирования основных полей и контента.
+    Поддерживает:
+      - PATCH/PUT с обычными полями
+      - Полную замену contents (если массив передан) с upsert по id и удалением «лишних» блоков
+      - Загрузку cover_image через multipart/form-data
+    """
+    contents = LessonContentSerializer(many=True, required=False)
+
+    class Meta:
+        model = Lesson
+        fields = [
+            'id', 'course', 'module', 'title', 'slug',
+            'summary', 'order', 'status', 'scheduled_at', 'published_at',
+            'duration_min', 'cover_image',
+            'contents',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_status(self, value: str) -> str:
+        # нормализуем на случай разных регистров
+        return (value or '').lower() or Lesson.Status.DRAFT
+
+    @transaction.atomic
+    def update(self, instance: Lesson, validated_data: Dict[str, Any]) -> Lesson:
+        """
+        Обновляем сам урок + (при наличии) полностью пересобираем blocks (contents).
+        Если в payload присутствует поле contents — считаем это намерением обновить структуру.
+        Алгоритм:
+          1) Собираем map существующих блоков по id.
+          2) Для пришедших с id — апдейтим поля.
+          3) Для пришедших без id — создаём новые.
+          4) Блоки, которых нет в пришедшем массиве, удаляем.
+        """
+        incoming_contents: List[Dict[str, Any]] | None = validated_data.pop('contents', None)
+
+        # Простая очистка cover_image: если пришло пустое значение строкой — обнуляем
+        # (актуально для JSON PATCH)
+        cover_in = self.context.get('request').data.get('cover_image') if self.context.get('request') else None
+        if cover_in in ['', 'null', 'None']:
+            instance.cover_image = None
+
+        # Обновляем «плоские» поля урока
+        for field in ['course', 'module', 'title', 'slug', 'summary',
+                      'order', 'status', 'scheduled_at', 'published_at',
+                      'duration_min', 'cover_image']:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        instance.save()
+
+        # Если контент не прислали — выходим
+        if incoming_contents is None:
+            return instance
+
+        # 1) существующие блоки
+        existing = {c.id: c for c in instance.contents.all()}
+
+        # 2) обрабатываем входящие
+        seen_ids: set[int] = set()
+        to_create: list[LessonContent] = []
+        to_update: list[LessonContent] = []
+
+        for idx, c in enumerate(incoming_contents):
+            cid = c.get('id')
+            base = {
+                'type': c.get('type'),
+                'data': c.get('data', {}) or {},
+                'order': c.get('order', idx),
+                'is_hidden': c.get('is_hidden', False),
+            }
+            if cid and cid in existing:
+                # апдейт существующего
+                block = existing[cid]
+                block.type = base['type']
+                block.data = base['data']
+                block.order = base['order']
+                block.is_hidden = base['is_hidden']
+                to_update.append(block)
+                seen_ids.add(cid)
+            else:
+                # создаём новый
+                to_create.append(LessonContent(
+                    lesson=instance,
+                    **base
+                ))
+
+        # 3) удаляем отсутствующие
+        to_delete_ids = [bid for bid in existing.keys() if bid not in seen_ids]
+        if to_delete_ids:
+            LessonContent.objects.filter(id__in=to_delete_ids, lesson=instance).delete()
+
+        # 4) массовые операции
+        if to_create:
+            LessonContent.objects.bulk_create(to_create)
+        if to_update:
+            LessonContent.objects.bulk_update(to_update, ['type', 'data', 'order', 'is_hidden'])
+
+        return instance
+
+# -------- Module --------==========================================================
 
 class ModuleSerializer(serializers.ModelSerializer):
     class Meta:
