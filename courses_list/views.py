@@ -1,37 +1,43 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
+from django.db.models import Count, Avg
+from rest_framework import generics, permissions, filters
+from django_filters.rest_framework import DjangoFilterBackend
+
 from course.models import Course
-from rest_framework import status
-from django.shortcuts import get_object_or_404
-from rest_framework.permissions import AllowAny
-from .serializers import CourseSerializer
-
-class CourseListAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        courses = Course.objects.all()
-        data = [
-            {
-                "id": course.id,
-                "title": course.title,
-                "description": course.description,
-                "price": float(course.price),
-                "author": course.author,
-                "language": course.language,
-                "topic": course.topic,
-                "image": request.build_absolute_uri(course.image.url) if course.image else None,
-                "rating": float(course.rating),
-            }
-            for course in courses
-        ]
-        return Response(data, status=status.HTTP_200_OK)
+from .serializers import PublicCourseCardSerializer
 
 
-class CourseDetailAPIView(APIView):
-    permission_classes = [AllowAny]
+class PublicCourseListAPIView(generics.ListAPIView):
+    """
+    Публічний каталог курсів з фільтрами/сортуванням/пошуком.
+    Видає лише опубліковані курси.
+    """
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PublicCourseCardSerializer
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filterset_fields = {
+        "category": ["exact"],
+        "price": ["lte", "gte"],
+        "rating": ["gte"],
+        "language": ["exact"],
+        "topic": ["icontains"],
+    }
+    search_fields = ["title", "description", "topic"]
+    ordering_fields = ["price", "rating", "title", "created_at"]
+    ordering = ["-created_at"]
 
-    def get(self, request, course_id):
-        course = get_object_or_404(Course, id=course_id)
-        serializer = CourseSerializer(course, context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    def get_queryset(self):
+        # select_related для продуктивності
+        qs = Course.objects.select_related("category", "author").filter(status=Course.Status.PUBLISHED)
+        return qs
+
+
+class PublicCourseDetailAPIView(generics.RetrieveAPIView):
+    """
+    Публічна детальна сторінка по slug.
+    """
+    permission_classes = [permissions.AllowAny]
+    serializer_class = PublicCourseCardSerializer
+    lookup_field = "slug"
+
+    def get_queryset(self):
+        return Course.objects.select_related("category", "author").filter(status=Course.Status.PUBLISHED)
