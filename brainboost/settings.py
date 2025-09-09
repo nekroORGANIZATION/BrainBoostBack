@@ -152,8 +152,7 @@ REST_FRAMEWORK = {
 
 # CORS
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://172.17.10.22:3000"
+    "http://localhost:3000",  # Next.js
 ]
 CORS_ALLOW_CREDENTIALS = True
 
