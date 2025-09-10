@@ -6,9 +6,11 @@ from .models import Test, Question, Choice, TestAttempt, AnswerAttempt
 # ---------- Choices ----------
 
 class ChoiceSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+
     class Meta:
         model = Choice
-        fields = ['text', 'is_correct', 'order']
+        fields = ['id','text', 'is_correct', 'order']
 
 
 class ChoicePublicSerializer(serializers.ModelSerializer):
@@ -19,25 +21,110 @@ class ChoicePublicSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 class QuestionSerializer(serializers.ModelSerializer):
-    choices = ChoiceSerializer(many=True)
+    id = serializers.IntegerField(required=False)
+    choices = ChoiceSerializer(many=True, required=False)
 
     class Meta:
         model = Question
-        fields = ['text', 'type', 'points', 'order', 'choices']
+        fields = ['id','text', 'type', 'points', 'order', 'choices']
 
     def create(self, validated_data):
         choices_data = validated_data.pop('choices', [])
         question = Question.objects.create(**validated_data)
+
+        # Для short/long — створюємо один Choice як правильну текстову відповідь
+        if question.type in ['short', 'long'] and choices_data:
+            Choice.objects.create(
+                question=question,
+                text=choices_data[0].get('text', ''),
+                is_correct=True,
+                order=1
+            )
+
         for choice_data in choices_data:
-            Choice.objects.create(question=question, **choice_data)
+            if question.type not in ['short', 'long']:
+                Choice.objects.create(question=question, **choice_data)
+                
         return question
+    
+
+    def update(self, instance, validated_data):
+        choices_data = validated_data.pop('choices', None)
+
+        # update question fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if choices_data is not None:
+            keep_ids = []
+            for choice_data in choices_data:
+                choice_id = choice_data.get('id')
+                if choice_id:
+                    choice = Choice.objects.get(id=choice_id, question=instance)
+                    for attr, value in choice_data.items():
+                        setattr(choice, attr, value)
+                    choice.save()
+                    keep_ids.append(choice.id)
+                else:
+                    choice = Choice.objects.create(question=instance, **choice_data)
+                    keep_ids.append(choice.id)
+
+            # видаляємо ті, що не передані
+            Choice.objects.filter(question=instance).exclude(id__in=keep_ids).delete()
+
+        return instance
+    
+    def update(self, instance, validated_data):
+        choices_data = validated_data.pop('choices', None)
+
+        # Оновлюємо поля питання
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if choices_data is not None:
+            if instance.type in ['short', 'long']:
+                # беремо перший choice як правильну відповідь
+                if choices_data:
+                    choice = instance.choices.filter(is_correct=True).first()
+                    if choice:
+                        choice.text = choices_data[0].get('text', '')
+                        choice.save()
+                    else:
+                        Choice.objects.create(
+                            question=instance,
+                            text=choices_data[0].get('text', ''),
+                            is_correct=True,
+                            order=1
+                        )
+                # видаляємо всі інші варіанти
+                instance.choices.exclude(is_correct=True).delete()
+            else:
+                # стандартне оновлення для інших типів
+                keep_ids = []
+                for choice_data in choices_data:
+                    choice_id = choice_data.get('id')
+                    if choice_id:
+                        choice = Choice.objects.get(id=choice_id, question=instance)
+                        for attr, value in choice_data.items():
+                            setattr(choice, attr, value)
+                        choice.save()
+                        keep_ids.append(choice.id)
+                    else:
+                        choice = Choice.objects.create(question=instance, **choice_data)
+                        keep_ids.append(choice.id)
+                Choice.objects.filter(question=instance).exclude(id__in=keep_ids).delete()
+
+        return instance
 
 class TestSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
     questions = QuestionSerializer(many=True, required=False)
 
     class Meta:
         model = Test
-        fields = ['lesson', 'title', 'description', 'status', 'time_limit_sec', 'attempts_allowed', 'pass_mark', 'questions']
+        fields = ['id', 'lesson', 'title', 'description', 'status', 'time_limit_sec', 'attempts_allowed', 'pass_mark', 'questions']
 
     def create(self, validated_data):
         questions_data = validated_data.pop('questions', [])
@@ -48,6 +135,35 @@ class TestSerializer(serializers.ModelSerializer):
             for choice_data in choices_data:
                 Choice.objects.create(question=question, **choice_data)
         return test
+    
+
+    def update(self, instance, validated_data):
+        questions_data = validated_data.pop('questions', None)
+
+        # update test fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if questions_data is not None:
+            keep_ids = []
+            for q_data in questions_data:
+                q_id = q_data.get('id')
+                if q_id:
+                    question = Question.objects.get(id=q_id, test=instance)
+                    self.fields['questions'].update(question, q_data)
+                    keep_ids.append(question.id)
+                else:
+                    choices_data = q_data.pop('choices', [])
+                    question = Question.objects.create(test=instance, **q_data)
+                    for choice_data in choices_data:
+                        Choice.objects.create(question=question, **choice_data)
+                    keep_ids.append(question.id)
+
+            # видаляємо ті, що не передані
+            Question.objects.filter(test=instance).exclude(id__in=keep_ids).delete()
+
+        return instance
 
 # ---------- Attempts (read-only серіалізатори для відповідей) ----------
 
