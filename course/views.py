@@ -308,7 +308,13 @@ class UserPurchasedCoursesView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return PurchasedCourse.objects.filter(user=self.request.user, is_active=True).select_related("course")
+        return (
+            PurchasedCourse.objects
+            .filter(user=self.request.user, is_active=True)
+            .select_related("course")
+            .order_by("-purchased_at", "-id")  # стабільний порядок для пагінації
+        )
+
 
 
 class EnrollCourseView(APIView):
