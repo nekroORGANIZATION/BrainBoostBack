@@ -83,9 +83,19 @@ jobs:
         ssh -i "${{ runner.temp }}/k" -p "$ssh_port" -o StrictHostKeyChecking=no \
           "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
             set -e
+
+            # дефолтні значення секретів
+            DEBUG_VAL="${{ secrets.DEBUG }}"
+            [ -z "$DEBUG_VAL" ] && DEBUG_VAL="1"
+
+            ALLOWED_HOSTS_VAL="${{ secrets.ALLOWED_HOSTS }}"
+            [ -z "$ALLOWED_HOSTS_VAL" ] && ALLOWED_HOSTS_VAL="127.0.0.1,localhost"
+
+            EMAIL_USER_VAL="${{ secrets.EMAIL_HOST_USER }}"
+            EMAIL_PASS_VAL="${{ secrets.EMAIL_HOST_PASSWORD }}"
+
             docker pull '"$IMG_SHA"' || true
             docker pull '"$IMG_DEV"' || true
-
             docker stop brainboost-back || true
             docker rm   brainboost-back || true
 
@@ -96,27 +106,13 @@ jobs:
             fi
 
             SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
-            DEBUG='"'${{ secrets.DEBUG || "1" }}'"' \
-            ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || "127.0.0.1,localhost,172.17.10.22" }}'"' \
-            EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || "" }}'"' \
-            EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || "" }}'"' \
+            DEBUG="$DEBUG_VAL" \
+            ALLOWED_HOSTS="$ALLOWED_HOSTS_VAL" \
+            EMAIL_HOST_USER="$EMAIL_USER_VAL" \
+            EMAIL_HOST_PASSWORD="$EMAIL_PASS_VAL" \
             docker run -d --name brainboost-back --restart unless-stopped \
               -p 8000:8000 \
               -e SECRET_KEY -e DEBUG -e ALLOWED_HOSTS \
               -e EMAIL_HOST_USER -e EMAIL_HOST_PASSWORD \
               "$IMG"
-
-            echo "Waiting for http://127.0.0.1:8000 ..."
-            for i in $(seq 1 60); do
-              code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
-              if [ -n "$code" ] && [ "$code" != "000" ]; then
-                echo "Backend is up (HTTP $code) ✅"
-                exit 0
-              fi
-              sleep 1
-            done
-
-            echo "Backend did not become ready in time. Logs:"
-            docker logs --tail=200 brainboost-back || true
-            exit 1
           '
