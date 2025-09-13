@@ -5,6 +5,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import models
+from django.utils.text import slugify
 
 from rest_framework import generics, permissions, parsers
 
@@ -304,23 +305,34 @@ from .models import Lesson, LessonContent, Module
 from .permissions import IsCourseAuthorOrStaff
 
 class SimpleLessonCreateView(APIView):
+    """
+    POST /api/lesson/lessons/
+    Створення уроку у спрощеному форматі (TEXT | VIDEO | LINK) з підтримкою cover_image.
+    """
     permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
     parser_classes = [parsers.JSONParser, parsers.FormParser, parsers.MultiPartParser]
 
+    @transaction.atomic
     def post(self, request):
         data = request.data
-        # required
+
+        # Обов'язкові поля
         course_id = data.get('course')
-        title = data.get('title', '').strip()
+        title = (data.get('title') or '').strip()
         order = data.get('order') or 0
         ltype = (data.get('type') or '').upper()
-        status_value = data.get('status', 'draft').lower()
+        status_value = (data.get('status') or 'draft').lower()
+        duration_min = data.get('duration_min') or None
+        cover_image = request.FILES.get('cover_image')  # підтримка multipart
 
-        if not course_id or not title or ltype not in ('VIDEO','TEXT','LINK'):
-            return Response({'detail': 'Invalid payload. Required: course, title, type [VIDEO|TEXT|LINK].'}, status=400)
+        # Перевірка валідності payload
+        if not course_id or not title or ltype not in ('TEXT', 'VIDEO', 'LINK'):
+            return Response(
+                {'detail': 'Invalid payload. Required: course, title, type [VIDEO|TEXT|LINK].'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        # create lesson
-        from django.utils.text import slugify
+        # Генерація унікального slug
         base_slug = slugify(title)[:180] or 'lesson'
         slug = base_slug
         i = 2
@@ -328,27 +340,48 @@ class SimpleLessonCreateView(APIView):
             slug = f"{base_slug}-{i}"
             i += 1
 
+        # Створюємо урок
         lesson = Lesson.objects.create(
             course_id=course_id,
             module=None,
             title=title,
             slug=slug,
-            summary=data.get('content_text','')[:300],
+            summary=(data.get('content_text') or '')[:300],
             order=order,
             status=status_value,
-            duration_min=data.get('duration_min') or None,
+            duration_min=duration_min,
+            cover_image=cover_image
         )
 
-        # map content
+        # Створюємо контент-блок залежно від типу
         if ltype == 'TEXT':
-            LessonContent.objects.create(lesson=lesson, type='text', data={'text': data.get('content_text','')})
+            LessonContent.objects.create(
+                lesson=lesson,
+                type='text',
+                data={'text': data.get('content_text', '')}
+            )
         elif ltype == 'VIDEO':
-            LessonContent.objects.create(lesson=lesson, type='video', data={'url': data.get('content_url','')})
+            LessonContent.objects.create(
+                lesson=lesson,
+                type='video',
+                data={'url': data.get('content_url', '')}
+            )
         elif ltype == 'LINK':
-            LessonContent.objects.create(lesson=lesson, type='link', data={'url': data.get('content_url','')})
+            LessonContent.objects.create(
+                lesson=lesson,
+                type='html',  # замість link
+                data={'html': f'<a href="{data.get("content_url","")}" target="_blank">{data.get("content_url","")}</a>'}
+            )
 
-        return Response({'id': lesson.id, 'slug': lesson.slug, 'title': lesson.title}, status=201)
-
+        return Response(
+            {
+                'id': lesson.id,
+                'slug': lesson.slug,
+                'title': lesson.title,
+                'cover_image': lesson.cover_image.url if lesson.cover_image else None
+            },
+            status=status.HTTP_201_CREATED
+        )
 
 class MyLessonsListView(generics.ListAPIView):
     serializer_class = LessonListSerializer
