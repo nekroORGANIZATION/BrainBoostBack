@@ -71,46 +71,46 @@ jobs:
           IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
         run: |
           ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
-              set -e
+  "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
+    set -e
 
-              docker pull '"$IMG_SHA"' || true
-              docker pull '"$IMG_DEV"' || true
+    # тягнемо образ (SHA або :dev) — як і було
+    docker pull '"$IMG_SHA"' || true
+    docker pull '"$IMG_DEV"' || true
+    if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
+      IMG='"$IMG_SHA"'
+    else
+      IMG='"$IMG_DEV"'
+    fi
 
-              docker stop brainboost-back || true
-              docker rm   brainboost-back || true
+    # >>> ДОДАНО: підтягуємо DEV_DB_URL із файлу на ВМ
+    set -a; . /opt/stacks/prod/.env; set +a   # тепер маємо $DEV_DB_URL
 
-              if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
-                IMG='"$IMG_SHA"'
-              else
-                IMG='"$IMG_DEV"'
-              fi
+    # перезапуск контейнера
+    docker stop brainboost-back || true
+    docker rm   brainboost-back || true
 
-              # заповнюємо env і передаємо їх у docker run
-              SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
-              DEBUG='"'${{ secrets.DEBUG || '1' }}'"' \
-              ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || '127.0.0.1,localhost,172.17.10.22' }}'"' \
-              EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || '' }}'"' \
-              EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || '' }}'"' \
-              docker run -d --name brainboost-back --restart unless-stopped \
-                -p 8000:8000 \
-                -e SECRET_KEY \
-                -e DEBUG \
-                -e ALLOWED_HOSTS \
-                -e EMAIL_HOST_USER \
-                -e EMAIL_HOST_PASSWORD \
-                "$IMG"
+    docker run -d --name brainboost-back --restart unless-stopped \
+      --network prod_default \                 # >>> ДОДАНО: одна мережа з pg-app
+      -p 8000:8000 \
+      -e DATABASE_URL="$DEV_DB_URL" \          # >>> ДОДАНО: рядок підключення до app_dev
+      -e SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
+      -e DEBUG='"'${{ secrets.DEBUG || '1' }}'"' \
+      -e ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || '127.0.0.1,localhost,172.17.10.22' }}'"' \
+      -e EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || '' }}'"' \
+      -e EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || '' }}'"' \
+      "$IMG"
 
-              echo "Waiting for http://127.0.0.1:8000 ..."
-              for i in $(seq 1 60); do
-                code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
-                if [ -n "$code" ] && [ "$code" != "000" ]; then
-                  echo "Backend is up (HTTP $code) ✅"
-                  exit 0
-                fi
-                sleep 1
-              done
-              echo "Backend did not become ready in time. Logs:"
-              docker logs --tail=200 brainboost-back || true
-              exit 1
-            '
+    # коротка перевірка
+    for i in $(seq 1 60); do
+      code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
+      [ -n "$code" ] && [ "$code" != "000" ] && { echo "Backend OK ($code)"; exit 0; }
+      sleep 1
+    done
+    echo "Backend not ready, logs:"; docker logs --tail=200 brainboost-back || true; exit 1
+  '
+          
+          
+          
+          
+          
