@@ -48,14 +48,18 @@ jobs:
     environment: dev
     needs: build-and-push
     steps:
-      - name: Prepare SSH key
-        shell: bash
-        run: |
-          mkdir -p "${{ runner.temp }}"
-          printf '%s\n' "${{ secrets.TARGET_SSH_KEY }}" | sed 's/\r$//' > "${{ runner.temp }}/k"
-          chmod 600 "${{ runner.temp }}/k"
-          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" echo ok
+     - name: Prepare SSH key
+      shell: bash
+      run: |
+        mkdir -p "${{ runner.temp }}"
+        printf '%s\n' "${{ secrets.TARGET_SSH_KEY }}" | sed 's/\r$//' > "${{ runner.temp }}/k"
+        chmod 600 "${{ runner.temp }}/k"
+
+        ssh_port="${{ secrets.TARGET_SSH_PORT }}"
+        [ -z "$ssh_port" ] && ssh_port=22
+
+        ssh -i "${{ runner.temp }}/k" -p "$ssh_port" -o StrictHostKeyChecking=no \
+          "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" echo ok
 
       - name: Login to GHCR on Tester
         shell: bash
