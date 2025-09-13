@@ -64,53 +64,84 @@ jobs:
             "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" \
             "echo '${{ secrets.GHCR_READ_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_USER }}' --password-stdin"
 
-      - name: Pull & run backend on Tester (port 8000)
-        shell: bash
-        env:
-          IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
-              set -e
+      - name: Pull & run backend on Tester (with Postgres)
+      shell: bash
+      env:
+        IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
+      run: |
+        ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
+          "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
+            set -e
 
-              docker pull '"$IMG_SHA"' || true
-              docker pull '"$IMG_DEV"' || true
+            # 1) спільна мережа для БД і бекенду
+            docker network inspect brainboost-net >/dev/null 2>&1 || docker network create brainboost-net
 
-              docker stop brainboost-back || true
-              docker rm   brainboost-back || true
+            # 2) PostgreSQL
+            docker pull postgres:16 || true
+            docker stop brainboost-db || true
+            docker rm   brainboost-db || true
+            docker run -d --name brainboost-db --restart unless-stopped \
+              --network brainboost-net \
+              -e POSTGRES_DB='"'${{ secrets.DB_NAME }}'"' \
+              -e POSTGRES_USER='"'${{ secrets.DB_USER }}'"' \
+              -e POSTGRES_PASSWORD='"'${{ secrets.DB_PASSWORD }}'"' \
+              -v brainboost-pg:/var/lib/postgresql/data \
+              -p 127.0.0.1:5432:5432 \
+              postgres:16
 
-              if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
-                IMG='"$IMG_SHA"'
-              else
-                IMG='"$IMG_DEV"'
+            echo "Чекаємо готовність PostgreSQL…"
+            for i in $(seq 1 60); do
+              docker exec brainboost-db pg_isready -U '"${{ secrets.DB_USER }}"' -d '"${{ secrets.DB_NAME }}"' && break || true
+              sleep 1
+            done
+
+            # 3) бекенд: тягнемо образ
+            docker pull '"$IMG_SHA"' || true
+            docker pull '"$IMG_DEV"' || true
+            docker stop brainboost-back || true
+            docker rm   brainboost-back || true
+
+            if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
+              IMG='"$IMG_SHA"'
+            else
+              IMG='"$IMG_DEV"'
+            fi
+
+            # 4) змінні оточення
+            SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
+            DEBUG='"'${{ secrets.DEBUG || "1" }}'"' \
+            ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || "127.0.0.1,localhost,172.17.10.22" }}'"' \
+            EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || "" }}'"' \
+            EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || "" }}'"' \
+            DB_HOST='"'brainboost-db'"' \
+            DB_PORT='"'${{ secrets.DB_PORT || "5432" }}'"' \
+            DB_NAME='"'${{ secrets.DB_NAME }}'"' \
+            DB_USER='"'${{ secrets.DB_USER }}'"' \
+            DB_PASSWORD='"'${{ secrets.DB_PASSWORD }}'"' \
+            docker run -d --name brainboost-back --restart unless-stopped \
+              --network brainboost-net \
+              -p 8000:8000 \
+              -e SECRET_KEY -e DEBUG -e ALLOWED_HOSTS \
+              -e EMAIL_HOST_USER -e EMAIL_HOST_PASSWORD \
+              -e DB_HOST -e DB_PORT -e DB_NAME -e DB_USER -e DB_PASSWORD \
+              "$IMG"
+
+            # 5) healthcheck (краще перевіряти /health, якщо є)
+            echo "Waiting for http://127.0.0.1:8000 ..."
+            for i in $(seq 1 60); do
+              code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
+              if [ -n "$code" ] && [ "$code" != "000" ]; then
+                echo "Backend is up (HTTP $code) ✅"
+                exit 0
               fi
+              sleep 1
+            done
 
-              # заповнюємо env і передаємо їх у docker run
-              SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
-              DEBUG='"'${{ secrets.DEBUG || '1' }}'"' \
-              ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || '127.0.0.1,localhost,172.17.10.22' }}'"' \
-              EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || '' }}'"' \
-              EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || '' }}'"' \
-              docker run -d --name brainboost-back --restart unless-stopped \
-                -p 8000:8000 \
-                -e SECRET_KEY \
-                -e DEBUG \
-                -e ALLOWED_HOSTS \
-                -e EMAIL_HOST_USER \
-                -e EMAIL_HOST_PASSWORD \
-                "$IMG"
-
-              echo "Waiting for http://127.0.0.1:8000 ..."
-              for i in $(seq 1 60); do
-                code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
-                if [ -n "$code" ] && [ "$code" != "000" ]; then
-                  echo "Backend is up (HTTP $code) ✅"
-                  exit 0
-                fi
-                sleep 1
-              done
-              echo "Backend did not become ready in time. Logs:"
-              docker logs --tail=200 brainboost-back || true
-              exit 1
-            '
+            echo "Backend did not become ready in time. Logs:"
+            echo "--- backend ---"
+            docker logs --tail=200 brainboost-back || true
+            echo "--- postgres ---"
+            docker logs --tail=200 brainboost-db || true
+            exit 1
+          '
