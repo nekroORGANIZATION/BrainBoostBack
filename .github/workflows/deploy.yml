@@ -70,7 +70,7 @@ jobs:
           IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
         run: |
-          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT  22 }}" -o StrictHostKeyChecking=no \
+          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT ||  22 }}" -o StrictHostKeyChecking=no \
             "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
               set -e
 
