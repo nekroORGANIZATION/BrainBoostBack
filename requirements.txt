@@ -1,0 +1,14 @@
+django
+django-cors-headers
+djangorestframework
+djangorestframework-simplejwt
+requests
+python-dotenv
+python-decouple
+paypalrestsdk
+Pillow
+dj_rest_auth
+django-allauth
+django-filter
+qrcode[pil]
+reportlab
