@@ -28,6 +28,7 @@ urlpatterns = [
     path('api-token-auth/', obtain_auth_token, name='api_token_auth'),
     path('courses/all/', include('courses_list.urls')),
     path('api/lesson/', include('lesson.urls')),
+    path('lesson/', include('lesson.urls')),
     path('api/ai/', include('ai.urls')),
     path('api/payments/', include('payments.urls')),
     path('admin_panel/api/', include('admin_panel.urls')),
