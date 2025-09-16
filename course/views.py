@@ -232,10 +232,10 @@ class CourseListCreateAPIView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
     filterset_fields = {
-        "category": ["exact"],
-        "price": ["lte", "gte"],
-        "rating": ["gte"],
-        "language": ["exact"],
+        "category": ["exact", "in"],   # тепер працює ?category=1 і ?category__in=1,2
+        "language": ["exact", "in"],   # тепер працює ?language=2 і ?language__in=2,3
+        "price": ["lte", "gte"],       # ?price__gte=100&price__lte=500
+        "rating": ["gte"],             # ?rating__gte=3.5
         "topic": ["icontains"],
         "status": ["exact"],
     }
@@ -254,7 +254,7 @@ class CourseListCreateAPIView(generics.ListCreateAPIView):
         return ctx
 
     def perform_create(self, serializer):
-        serializer.save()  # author виставляється в serializer.create
+        serializer.save()
 
 
 class CourseDetailAPIView(generics.RetrieveAPIView):
