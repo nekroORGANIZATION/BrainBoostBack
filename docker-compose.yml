@@ -19,7 +19,7 @@ services:
       frontend:
         condition: service_healthy
     volumes:
-      - /opt/myapp/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     # ПОРТИ НЕ ПУБЛІКУЄМО — ходимо прямо на 172.17.10.23:80/3000/8000
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1"]
