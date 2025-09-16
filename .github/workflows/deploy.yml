@@ -48,69 +48,71 @@ jobs:
     environment: dev
     needs: build-and-push
     steps:
-      - name: Prepare SSH key
-        shell: bash
-        run: |
-          mkdir -p "${{ runner.temp }}"
-          printf '%s\n' "${{ secrets.TARGET_SSH_KEY }}" | sed 's/\r$//' > "${{ runner.temp }}/k"
-          chmod 600 "${{ runner.temp }}/k"
-          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" echo ok
+    - name: Prepare SSH key
+      shell: bash
+      run: |
+        set -e
+        mkdir -p "${{ runner.temp }}"
+        printf '%s\n' "${{ secrets.TARGET_SSH_KEY }}" | sed 's/\r$//' > "${{ runner.temp }}/k"
+        chmod 600 "${{ runner.temp }}/k"
 
-      - name: Login to GHCR on Tester
-        shell: bash
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" \
-            "echo '${{ secrets.GHCR_READ_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_USER }}' --password-stdin"
+        ssh_port="${{ secrets.TARGET_SSH_PORT }}"
+        [ -z "$ssh_port" ] && ssh_port=22
 
-      - name: Pull & run backend on Tester (port 8000)
-        shell: bash
-        env:
-          IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
-        run: |
-          ssh -i "${{ runner.temp }}/k" -p "${{ secrets.TARGET_SSH_PORT || 22 }}" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
-              set -e
+        ssh -i "${{ runner.temp }}/k" -p "$ssh_port" -o StrictHostKeyChecking=no \
+          "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" echo ok
 
-              docker pull '"$IMG_SHA"' || true
-              docker pull '"$IMG_DEV"' || true
+    - name: Login to GHCR on Tester
+      shell: bash
+      run: |
+        set -e
+        ssh_port="${{ secrets.TARGET_SSH_PORT }}"; [ -z "$ssh_port" ] && ssh_port=22
+        ssh -i "${{ runner.temp }}/k" -p "$ssh_port" -o StrictHostKeyChecking=no \
+          "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" \
+          "echo '${{ secrets.GHCR_READ_TOKEN }}' | docker login ghcr.io -u '${{ secrets.GHCR_USER }}' --password-stdin"
 
-              docker stop brainboost-back || true
-              docker rm   brainboost-back || true
+    - name: Pull & run backend on Tester (port 8000)
+      shell: bash
+      env:
+        IMG_SHA: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        IMG_DEV: ghcr.io/${{ env.OWNER }}/${{ env.IMAGE_NAME }}:dev
+      run: |
+        set -e
+        ssh_port="${{ secrets.TARGET_SSH_PORT }}"; [ -z "$ssh_port" ] && ssh_port=22
 
-              if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
-                IMG='"$IMG_SHA"'
-              else
-                IMG='"$IMG_DEV"'
-              fi
+        ssh -i "${{ runner.temp }}/k" -p "$ssh_port" -o StrictHostKeyChecking=no \
+          "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
+            set -e
 
-              # заповнюємо env і передаємо їх у docker run
-              SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
-              DEBUG='"'${{ secrets.DEBUG || '1' }}'"' \
-              ALLOWED_HOSTS='"'${{ secrets.ALLOWED_HOSTS || '127.0.0.1,localhost,172.17.10.22' }}'"' \
-              EMAIL_HOST_USER='"'${{ secrets.EMAIL_HOST_USER || '' }}'"' \
-              EMAIL_HOST_PASSWORD='"'${{ secrets.EMAIL_HOST_PASSWORD || '' }}'"' \
-              docker run -d --name brainboost-back --restart unless-stopped \
-                -p 8000:8000 \
-                -e SECRET_KEY \
-                -e DEBUG \
-                -e ALLOWED_HOSTS \
-                -e EMAIL_HOST_USER \
-                -e EMAIL_HOST_PASSWORD \
-                "$IMG"
+            # дефолтні значення секретів
+            DEBUG_VAL="${{ secrets.DEBUG }}"
+            [ -z "$DEBUG_VAL" ] && DEBUG_VAL="1"
 
-              echo "Waiting for http://127.0.0.1:8000 ..."
-              for i in $(seq 1 60); do
-                code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
-                if [ -n "$code" ] && [ "$code" != "000" ]; then
-                  echo "Backend is up (HTTP $code) ✅"
-                  exit 0
-                fi
-                sleep 1
-              done
-              echo "Backend did not become ready in time. Logs:"
-              docker logs --tail=200 brainboost-back || true
-              exit 1
-            '
+            ALLOWED_HOSTS_VAL="${{ secrets.ALLOWED_HOSTS }}"
+            [ -z "$ALLOWED_HOSTS_VAL" ] && ALLOWED_HOSTS_VAL="127.0.0.1,localhost"
+
+            EMAIL_USER_VAL="${{ secrets.EMAIL_HOST_USER }}"
+            EMAIL_PASS_VAL="${{ secrets.EMAIL_HOST_PASSWORD }}"
+
+            docker pull '"$IMG_SHA"' || true
+            docker pull '"$IMG_DEV"' || true
+            docker stop brainboost-back || true
+            docker rm   brainboost-back || true
+
+            if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
+              IMG='"$IMG_SHA"'
+            else
+              IMG='"$IMG_DEV"'
+            fi
+
+            SECRET_KEY='"'${{ secrets.SECRET_KEY }}'"' \
+            DEBUG="$DEBUG_VAL" \
+            ALLOWED_HOSTS="$ALLOWED_HOSTS_VAL" \
+            EMAIL_HOST_USER="$EMAIL_USER_VAL" \
+            EMAIL_HOST_PASSWORD="$EMAIL_PASS_VAL" \
+            docker run -d --name brainboost-back --restart unless-stopped \
+              -p 8000:8000 \
+              -e SECRET_KEY -e DEBUG -e ALLOWED_HOSTS \
+              -e EMAIL_HOST_USER -e EMAIL_HOST_PASSWORD \
+              "$IMG"
+          '
