@@ -8,7 +8,7 @@ from .views import (
     UserPurchasedCoursesView, EnrollCourseView,
     CommentListCreateView, CommentRetrieveUpdateDestroyView,
     WishlistListCreateView, WishlistDeleteView, WishlistToggleView, LanguageListAPIView,
-    CategoryAdminDetailAPIView, CategoryAdminListCreateAPIView, LanguageAdminDetailAPIView
+    CategoryAdminDetailAPIView, CategoryAdminListCreateAPIView, LanguageAdminDetailAPIView, MyCoursesListAPIView,
 )
 
 urlpatterns = [
@@ -25,6 +25,7 @@ urlpatterns = [
 
     # Courses list / by id
     path("", CourseListCreateAPIView.as_view(), name="course-list"),
+    path("my/", MyCoursesListAPIView.as_view(), name="course-my"),
     path("<int:pk>/", CourseRetrieveUpdateDestroyByIDAPIView.as_view(), name="course-detail-id"),
 
     # ✅ Wishlist

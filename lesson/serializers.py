@@ -1,7 +1,7 @@
-# lesson/serializers.py
 from __future__ import annotations
-from typing import Any, Dict, List
+from typing import Any, Dict
 from django.db import transaction
+from django.db.models import Max
 from rest_framework import serializers
 from .models import Module, Lesson, LessonContent, LessonProgress
 
@@ -35,7 +35,6 @@ class LessonBlockSerializer(serializers.ModelSerializer):
         def strf(x): return isinstance(x, str)
 
         if t == 'text':
-            # дозволяємо або data.html, або data.text (для сумісності)
             if not (strf(data.get('html', '')) or strf(data.get('text', ''))):
                 raise serializers.ValidationError({'data': 'text: need html or text'})
         elif t in ('image', 'video', 'file'):
@@ -69,10 +68,9 @@ class LessonBlockSerializer(serializers.ModelSerializer):
 # ---------- Lessons ----------
 class LessonSerializer(serializers.ModelSerializer):
     """
-    Повний урок + (опційно) масив блоків.
-    Підтримує старий простий формат створення через поля:
-      - type: text|video|link
-      - content_text / content_url
+    Повний урок + (опційно) масив блоків. Без логіки навколо slug.
+    Підтримує старий простий формат створення (type/content_*) і новий (contents[]).
+    Авто-виставляє `order`, якщо не прийшов.
     """
     contents = LessonBlockSerializer(many=True, required=False)
     # сумісність зі SimpleLessonCreate
@@ -115,14 +113,22 @@ class LessonSerializer(serializers.ModelSerializer):
         # summary не обов'язковий, але якщо прийшов — збережемо
         attrs['summary'] = initial.get('summary', attrs.get('summary', ''))
 
-        # Якщо надіслали contents — працюємо з ними
+        # Якщо надіслали contents — працюємо з ними, інакше синтезуємо зі старого формату
         if 'contents' in initial and initial['contents'] is not None:
-            return attrs
+            pass
+        else:
+            synth = self._flat_to_contents(initial | attrs)
+            if synth:
+                attrs['contents'] = synth
 
-        # Інакше намагаємось зібрати blocks зі старого формату
-        synth = self._flat_to_contents(initial | attrs)
-        if synth:
-            attrs['contents'] = synth
+        # якщо order не передали — поставимо наступний у межах модуля (або курсу)
+        if not attrs.get('order'):
+            qs = Lesson.objects.filter(course=attrs.get('course'))
+            if attrs.get('module'):
+                qs = qs.filter(module=attrs['module'])
+            last = qs.aggregate(mx=Max('order'))['mx'] or 0
+            attrs['order'] = last + 1
+
         return attrs
 
     @transaction.atomic
