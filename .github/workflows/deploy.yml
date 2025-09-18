@@ -45,7 +45,7 @@ jobs:
 
   deploy-to-tester:
     needs: build-and-push
-    runs-on: ubuntu-latest        # ✅ замінили self-hosted на ubuntu-latest
+    runs-on: ubuntu-latest      # якщо ВМ приватна — заміни на: self-hosted
     environment: dev
     steps:
       - name: Prepare SSH key
@@ -55,6 +55,16 @@ jobs:
           mkdir -p "${{ runner.temp }}"
           printf '%s\n' "${{ secrets.TARGET_SSH_KEY }}" | sed 's/\r$//' > "${{ runner.temp }}/k"
           chmod 600 "${{ runner.temp }}/k"
+
+      - name: Debug DNS/port reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+          H="${{ secrets.TARGET_HOST }}"
+          P="${{ secrets.TARGET_SSH_PORT }}"; [ -z "$P" ] && P=22
+          echo "Testing reachability of $H:$P"
+          getent ahosts "$H" || true
+          nc -vz "$H" "$P" || true
 
       - name: Login to GHCR on Tester
         shell: bash
@@ -73,7 +83,6 @@ jobs:
         run: |
           set -euo pipefail
           PORT="${{ secrets.TARGET_SSH_PORT }}"; [ -z "$PORT" ] && PORT=22
-
           ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no \
             "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
               set -euo pipefail
@@ -102,7 +111,6 @@ jobs:
                 fi
                 sleep 1
               done
-
               echo "Backend did not become ready in time. Logs:"
               docker logs --tail=200 brainboost-back || true
               exit 1
