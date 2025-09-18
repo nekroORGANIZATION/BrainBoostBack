@@ -45,7 +45,7 @@ jobs:
 
   deploy-to-tester:
     needs: build-and-push
-    runs-on: self-hosted
+    runs-on: ubuntu-latest        # ✅ замінили self-hosted на ubuntu-latest
     environment: dev
     steps:
       - name: Prepare SSH key
@@ -78,27 +78,21 @@ jobs:
             "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
               set -euo pipefail
 
-              # тягнемо образи (sha та dev як запасний)
               docker pull '"$IMG_SHA"' || true
               docker pull '"$IMG_DEV"' || true
 
-              # готуємо чистий контейнер
               docker stop brainboost-back || true
               docker rm   brainboost-back || true
 
-              # якщо є образ за SHA — беремо його, інакше :dev
               if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
                 IMG='"$IMG_SHA"'
               else
                 IMG='"$IMG_DEV"'
               fi
 
-              # БЕЗ додаткових ENV — просто підняти і слухати 8000
               docker run -d --name brainboost-back --restart unless-stopped \
-                -p 8000:8000 \
-                "$IMG"
+                -p 8000:8000 "$IMG"
 
-              # простий хелсчек
               echo "Waiting for http://127.0.0.1:8000 ..."
               for i in $(seq 1 60); do
                 code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
@@ -108,6 +102,7 @@ jobs:
                 fi
                 sleep 1
               done
+
               echo "Backend did not become ready in time. Logs:"
               docker logs --tail=200 brainboost-back || true
               exit 1
