@@ -56,12 +56,6 @@ jobs:
           printf '%s\n' "${{ secrets.TARGET_SSH_KEY }}" | sed 's/\r$//' > "${{ runner.temp }}/k"
           chmod 600 "${{ runner.temp }}/k"
 
-          PORT="${{ secrets.TARGET_SSH_PORT }}"
-          [ -z "$PORT" ] && PORT=22
-
-          ssh -i "${{ runner.temp }}/k" -p "$PORT" -o StrictHostKeyChecking=no \
-            "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" echo ok
-
       - name: Login to GHCR on Tester
         shell: bash
         run: |
@@ -84,39 +78,27 @@ jobs:
             "${{ secrets.TARGET_USER }}@${{ secrets.TARGET_HOST }}" '
               set -euo pipefail
 
+              # тягнемо образи (sha та dev як запасний)
               docker pull '"$IMG_SHA"' || true
               docker pull '"$IMG_DEV"' || true
 
+              # готуємо чистий контейнер
               docker stop brainboost-back || true
               docker rm   brainboost-back || true
 
+              # якщо є образ за SHA — беремо його, інакше :dev
               if docker image inspect '"$IMG_SHA"' >/dev/null 2>&1; then
                 IMG='"$IMG_SHA"'
               else
                 IMG='"$IMG_DEV"'
               fi
 
-              # дефолти для ENV робимо в shell (а не в ${{ }})
-              DEBUG_VAL="${DEBUG_VAL:-'"${{ secrets.DEBUG }}"'}"
-              [ -z "$DEBUG_VAL" ] && DEBUG_VAL="1"
-
-              ALLOWED_HOSTS_VAL="${ALLOWED_HOSTS_VAL:-'"${{ secrets.ALLOWED_HOSTS }}"'}"
-              [ -z "$ALLOWED_HOSTS_VAL" ] && ALLOWED_HOSTS_VAL="127.0.0.1,localhost"
-
-              EMAIL_USER_VAL="'"${{ secrets.EMAIL_HOST_USER }}"'"
-              EMAIL_PASS_VAL="'"${{ secrets.EMAIL_HOST_PASSWORD }}"'"
-
-              SECRET_KEY="'"${{ secrets.SECRET_KEY }}"'" \
-              DEBUG="$DEBUG_VAL" \
-              ALLOWED_HOSTS="$ALLOWED_HOSTS_VAL" \
-              EMAIL_HOST_USER="$EMAIL_USER_VAL" \
-              EMAIL_HOST_PASSWORD="$EMAIL_PASS_VAL" \
+              # БЕЗ додаткових ENV — просто підняти і слухати 8000
               docker run -d --name brainboost-back --restart unless-stopped \
                 -p 8000:8000 \
-                -e SECRET_KEY -e DEBUG -e ALLOWED_HOSTS \
-                -e EMAIL_HOST_USER -e EMAIL_HOST_PASSWORD \
                 "$IMG"
 
+              # простий хелсчек
               echo "Waiting for http://127.0.0.1:8000 ..."
               for i in $(seq 1 60); do
                 code="$(curl -s -m 2 -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/ || true)"
