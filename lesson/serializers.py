@@ -1,8 +1,10 @@
 # lesson/serializers.py
 from __future__ import annotations
 from typing import Any, Dict, List
+
 from django.db import transaction
 from rest_framework import serializers
+
 from .models import Module, Lesson, LessonContent, LessonProgress
 
 
@@ -20,6 +22,13 @@ class ModuleReorderSerializer(serializers.Serializer):
     )
 
 
+# Лёгкий модуль для встраивания в уроки
+class ModuleLiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Module
+        fields = ['id', 'title', 'order']
+
+
 # ---------- Lesson blocks ----------
 class LessonBlockSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
@@ -35,7 +44,6 @@ class LessonBlockSerializer(serializers.ModelSerializer):
         def strf(x): return isinstance(x, str)
 
         if t == 'text':
-            # дозволяємо або data.html, або data.text (для сумісності)
             if not (strf(data.get('html', '')) or strf(data.get('text', ''))):
                 raise serializers.ValidationError({'data': 'text: need html or text'})
         elif t in ('image', 'video', 'file'):
@@ -69,13 +77,31 @@ class LessonBlockSerializer(serializers.ModelSerializer):
 # ---------- Lessons ----------
 class LessonSerializer(serializers.ModelSerializer):
     """
-    Повний урок + (опційно) масив блоків.
-    Підтримує старий простий формат створення через поля:
+    Полный урок + (опционально) массив блоков.
+
+    На ЧТЕНИЕ:
+      - module -> вложенный объект ModuleLiteSerializer
+    На ЗАПИСЬ:
+      - module_id -> PK (write-only), чтобы не ломать совместимость форм/админки
+
+    Поддерживает старый формат:
       - type: text|video|link
       - content_text / content_url
     """
     contents = LessonBlockSerializer(many=True, required=False)
-    # сумісність зі SimpleLessonCreate
+
+    # READ: nested module
+    module = ModuleLiteSerializer(read_only=True)
+    # WRITE: PK для ForeignKey
+    module_id = serializers.PrimaryKeyRelatedField(
+        source='module',
+        queryset=Module.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+
+    # совместимость со старым форматом создания
     type = serializers.CharField(write_only=True, required=False, allow_blank=False)
     content_text = serializers.CharField(write_only=True, required=False, allow_blank=True)
     content_url  = serializers.CharField(write_only=True, required=False, allow_blank=True)
@@ -83,7 +109,9 @@ class LessonSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lesson
         fields = [
-            'id', 'course', 'module', 'title', 'slug',
+            'id', 'course',
+            'module', 'module_id',        # 👈 читаем объект, пишем через PK
+            'title', 'slug',
             'summary', 'order', 'status', 'scheduled_at', 'published_at',
             'duration_min', 'cover_image',
             'contents',
@@ -92,7 +120,7 @@ class LessonSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
-    # ---- старий формат → в масив блоків (якщо contents не прислали)
+    # ---- старый формат → в массив блоков (если contents не прислали)
     def _normalize_type(self, t: str) -> str:
         return (t or '').strip().lower()
 
@@ -112,14 +140,11 @@ class LessonSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         initial = getattr(self, 'initial_data', {}) or {}
 
-        # summary не обов'язковий, але якщо прийшов — збережемо
         attrs['summary'] = initial.get('summary', attrs.get('summary', ''))
 
-        # Якщо надіслали contents — працюємо з ними
         if 'contents' in initial and initial['contents'] is not None:
             return attrs
 
-        # Інакше намагаємось зібрати blocks зі старого формату
         synth = self._flat_to_contents(initial | attrs)
         if synth:
             attrs['contents'] = synth
@@ -128,7 +153,7 @@ class LessonSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         contents = validated_data.pop('contents', [])
-        # прибираємо службові поля старого формату
+        # убираем служебные поля старого формата
         validated_data.pop('type', None)
         validated_data.pop('content_text', None)
         validated_data.pop('content_url', None)
@@ -151,12 +176,12 @@ class LessonSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         contents = validated_data.pop('contents', None)
 
-        # оновлюємо плоскі поля
+        # обновляем плоские поля (включая module через module_id→source='module')
         for k, v in validated_data.items():
             setattr(instance, k, v)
         instance.save()
 
-        # повна заміна масиву блоків (якщо передали)
+        # полная замена массива блоков (если передали)
         if contents is not None:
             instance.contents.all().delete()
             bulk = [
@@ -173,7 +198,7 @@ class LessonSerializer(serializers.ModelSerializer):
         return instance
 
 
-# ---------- Progress / списки для каталогу / публіка ----------
+# ---------- Progress / списки для каталога / публичка ----------
 class LessonProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = LessonProgress
@@ -182,12 +207,22 @@ class LessonProgressSerializer(serializers.ModelSerializer):
 
 
 class LessonPublicListWithProgressSerializer(serializers.ModelSerializer):
+    """
+    Публичный список уроков с прогрессом пользователя.
+    Чтение: module — вложенный объект; order — для стабильной сортировки на фронте.
+    """
     completed = serializers.BooleanField(read_only=True)
     result_percent = serializers.IntegerField(read_only=True, allow_null=True)
+    module = ModuleLiteSerializer(read_only=True)
+    order = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Lesson
-        fields = ['id', 'title', 'summary', 'duration_min', 'cover_image', 'completed', 'result_percent']
+        fields = [
+            'id', 'title', 'summary', 'duration_min', 'cover_image',
+            'completed', 'result_percent',
+            'module', 'order',
+        ]
 
 
 class LessonListSerializer(serializers.Serializer):

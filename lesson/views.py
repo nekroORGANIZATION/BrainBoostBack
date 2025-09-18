@@ -436,3 +436,49 @@ def lesson_theory(request, lesson_id):
         return Response({'id': lesson.id, 'title': lesson.title, 'duration_min': lesson.duration_min, 'theory': theory_content})
     except Lesson.DoesNotExist:
         return Response({'detail': 'Not found.'}, status=404)
+
+
+from django.db import transaction
+from django.db.models import Exists, OuterRef, Subquery, Value, BooleanField, IntegerField
+
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAuthenticatedOrReadOnly
+
+from .models import Lesson, LessonProgress
+from .serializers import LessonPublicListWithProgressSerializer
+
+
+
+# === Public list with user progress (для страницы курса) ===
+class CourseLessonsWithProgressView(ListAPIView):
+    """
+    GET /api/lesson/courses/<course_id>/lessons/
+    Отдаёт список уроков курса с аннотациями прогресса текущего пользователя,
+    и сразу подтягивает module, чтобы не ловить N+1.
+    """
+    serializer_class = LessonPublicListWithProgressSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        course_id = self.kwargs.get("course_id")
+
+        qs = (
+            Lesson.objects
+            .filter(course_id=course_id)
+            .select_related("module")
+            .order_by("module__order", "order", "id")
+        )
+
+        user = getattr(self.request, "user", None)
+        if user and user.is_authenticated:
+            lp = LessonProgress.objects.filter(user=user, lesson=OuterRef("pk"))
+            qs = qs.annotate(
+                completed=Exists(lp.filter(state=LessonProgress.State.COMPLETED)),
+                result_percent=Subquery(lp.values("result_percent")[:1]),
+            )
+        else:
+            qs = qs.annotate(
+                completed=Value(False, output_field=BooleanField()),
+                result_percent=Value(None, output_field=IntegerField()),
+            )
+        return qs

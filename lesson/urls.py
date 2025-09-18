@@ -1,6 +1,7 @@
 # lesson/urls.py
 from django.urls import path
 from .views import (
+    CourseLessonsWithProgressView,
     # modules
     ModuleListCreateView, ModuleDetailView, ModuleReorderView,
     # lessons
@@ -34,7 +35,7 @@ urlpatterns = [
     # -------- Public (student)
     path('public/lessons/<int:id>/', LessonPublicDetailView.as_view(), name='lesson-public-detail'),
     path('public/lessons/id/<int:lesson_id>/', LessonPublicDetailViewById.as_view(), name='lesson-public-detail-id'),
-    path('courses/<int:course_id>/lessons/', LessonsByCourseView.as_view(), name='course-lessons'),
+    path('courses/<int:course_id>/lessons/', CourseLessonsWithProgressView.as_view(), name='course-lessons'),
 
     # -------- Progress
     path('progress/<int:lesson_id>/', LessonProgressUpsertView.as_view(), name='lesson-progress-upsert'),
