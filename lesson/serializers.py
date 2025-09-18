@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import Any, Dict
+from typing import Any, Dict, List
+
 from django.db import transaction
 from django.db.models import Max
 from rest_framework import serializers
+
 from .models import Module, Lesson, LessonContent, LessonProgress
 
 
@@ -18,6 +20,13 @@ class ModuleReorderSerializer(serializers.Serializer):
         child=serializers.DictField(child=serializers.IntegerField()),
         help_text="[{id: <int>, order: <int>}, ...]"
     )
+
+
+# Лёгкий модуль для встраивания в уроки
+class ModuleLiteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Module
+        fields = ['id', 'title', 'order']
 
 
 # ---------- Lesson blocks ----------
@@ -67,13 +76,20 @@ class LessonBlockSerializer(serializers.ModelSerializer):
 
 # ---------- Lessons ----------
 class LessonSerializer(serializers.ModelSerializer):
-    """
-    Повний урок + (опційно) масив блоків. Без логіки навколо slug.
-    Підтримує старий простий формат створення (type/content_*) і новий (contents[]).
-    Авто-виставляє `order`, якщо не прийшов.
-    """
     contents = LessonBlockSerializer(many=True, required=False)
-    # сумісність зі SimpleLessonCreate
+
+    # READ: nested module
+    module = ModuleLiteSerializer(read_only=True)
+    # WRITE: PK для ForeignKey
+    module_id = serializers.PrimaryKeyRelatedField(
+        source='module',
+        queryset=Module.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
+
+    # совместимость со старым форматом создания
     type = serializers.CharField(write_only=True, required=False, allow_blank=False)
     content_text = serializers.CharField(write_only=True, required=False, allow_blank=True)
     content_url  = serializers.CharField(write_only=True, required=False, allow_blank=True)
@@ -81,7 +97,9 @@ class LessonSerializer(serializers.ModelSerializer):
     class Meta:
         model = Lesson
         fields = [
-            'id', 'course', 'module', 'title', 'slug',
+            'id', 'course',
+            'module', 'module_id',       
+            'title', 'slug',
             'summary', 'order', 'status', 'scheduled_at', 'published_at',
             'duration_min', 'cover_image',
             'contents',
@@ -90,7 +108,6 @@ class LessonSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
-    # ---- старий формат → в масив блоків (якщо contents не прислали)
     def _normalize_type(self, t: str) -> str:
         return (t or '').strip().lower()
 
@@ -110,10 +127,8 @@ class LessonSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         initial = getattr(self, 'initial_data', {}) or {}
 
-        # summary не обов'язковий, але якщо прийшов — збережемо
         attrs['summary'] = initial.get('summary', attrs.get('summary', ''))
 
-        # Якщо надіслали contents — працюємо з ними, інакше синтезуємо зі старого формату
         if 'contents' in initial and initial['contents'] is not None:
             pass
         else:
@@ -129,12 +144,16 @@ class LessonSerializer(serializers.ModelSerializer):
             last = qs.aggregate(mx=Max('order'))['mx'] or 0
             attrs['order'] = last + 1
 
+        synth = self._flat_to_contents(initial | attrs)
+        if synth:
+            attrs['contents'] = synth
+
         return attrs
 
     @transaction.atomic
     def create(self, validated_data):
         contents = validated_data.pop('contents', [])
-        # прибираємо службові поля старого формату
+        # убираем служебные поля старого формата
         validated_data.pop('type', None)
         validated_data.pop('content_text', None)
         validated_data.pop('content_url', None)
@@ -157,12 +176,11 @@ class LessonSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         contents = validated_data.pop('contents', None)
 
-        # оновлюємо плоскі поля
         for k, v in validated_data.items():
             setattr(instance, k, v)
         instance.save()
 
-        # повна заміна масиву блоків (якщо передали)
+        # полная замена массива блоков (если передали)
         if contents is not None:
             instance.contents.all().delete()
             bulk = [
@@ -179,7 +197,6 @@ class LessonSerializer(serializers.ModelSerializer):
         return instance
 
 
-# ---------- Progress / списки для каталогу / публіка ----------
 class LessonProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = LessonProgress
@@ -188,12 +205,22 @@ class LessonProgressSerializer(serializers.ModelSerializer):
 
 
 class LessonPublicListWithProgressSerializer(serializers.ModelSerializer):
+    """
+    Публичный список уроков с прогрессом пользователя.
+    Чтение: module — вложенный объект; order — для стабильной сортировки на фронте.
+    """
     completed = serializers.BooleanField(read_only=True)
     result_percent = serializers.IntegerField(read_only=True, allow_null=True)
+    module = ModuleLiteSerializer(read_only=True)
+    order = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Lesson
-        fields = ['id', 'title', 'summary', 'duration_min', 'cover_image', 'completed', 'result_percent']
+        fields = [
+            'id', 'title', 'summary', 'duration_min', 'cover_image',
+            'completed', 'result_percent',
+            'module', 'order',
+        ]
 
 
 class LessonListSerializer(serializers.Serializer):
