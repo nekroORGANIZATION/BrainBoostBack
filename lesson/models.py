@@ -1,4 +1,3 @@
-# lesson/models.py
 from django.db import models
 from django.conf import settings
 from course.models import Course
@@ -31,9 +30,10 @@ class Lesson(models.Model):
     module       = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name='lessons')
 
     title        = models.CharField(max_length=200)
-    slug         = models.SlugField(max_length=255, unique=True, null=True, blank=True)
+    # slug є, але ми ним не користуємось для валідації/унікальності
+    slug         = models.SlugField(max_length=255, null=True, blank=True)
 
-    summary      = models.TextField(blank=True)   # лишаємо для карток/пошуку (може генеритись з першого текст-блоку)
+    summary      = models.TextField(blank=True)   # для карток/пошуку (може генеритись з першого текст-блоку)
     order        = models.PositiveIntegerField(default=0, db_index=True)
     status       = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
 
@@ -53,7 +53,7 @@ class Lesson(models.Model):
             models.Index(fields=['module']),
             models.Index(fields=['status']),
         ]
-        unique_together = [('course', 'title')]
+        # ⬇️ важливо: НЕ обмежуємо унікальність (course, title) і НЕ робимо slug унікальним
 
     def __str__(self):
         return self.title

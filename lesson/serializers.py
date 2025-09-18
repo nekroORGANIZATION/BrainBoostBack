@@ -1,8 +1,8 @@
-# lesson/serializers.py
 from __future__ import annotations
 from typing import Any, Dict, List
 
 from django.db import transaction
+from django.db.models import Max
 from rest_framework import serializers
 
 from .models import Module, Lesson, LessonContent, LessonProgress
@@ -76,18 +76,6 @@ class LessonBlockSerializer(serializers.ModelSerializer):
 
 # ---------- Lessons ----------
 class LessonSerializer(serializers.ModelSerializer):
-    """
-    Полный урок + (опционально) массив блоков.
-
-    На ЧТЕНИЕ:
-      - module -> вложенный объект ModuleLiteSerializer
-    На ЗАПИСЬ:
-      - module_id -> PK (write-only), чтобы не ломать совместимость форм/админки
-
-    Поддерживает старый формат:
-      - type: text|video|link
-      - content_text / content_url
-    """
     contents = LessonBlockSerializer(many=True, required=False)
 
     # READ: nested module
@@ -110,7 +98,7 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'course',
-            'module', 'module_id',        # 👈 читаем объект, пишем через PK
+            'module', 'module_id',       
             'title', 'slug',
             'summary', 'order', 'status', 'scheduled_at', 'published_at',
             'duration_min', 'cover_image',
@@ -120,7 +108,6 @@ class LessonSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
-    # ---- старый формат → в массив блоков (если contents не прислали)
     def _normalize_type(self, t: str) -> str:
         return (t or '').strip().lower()
 
@@ -143,11 +130,24 @@ class LessonSerializer(serializers.ModelSerializer):
         attrs['summary'] = initial.get('summary', attrs.get('summary', ''))
 
         if 'contents' in initial and initial['contents'] is not None:
-            return attrs
+            pass
+        else:
+            synth = self._flat_to_contents(initial | attrs)
+            if synth:
+                attrs['contents'] = synth
+
+        # якщо order не передали — поставимо наступний у межах модуля (або курсу)
+        if not attrs.get('order'):
+            qs = Lesson.objects.filter(course=attrs.get('course'))
+            if attrs.get('module'):
+                qs = qs.filter(module=attrs['module'])
+            last = qs.aggregate(mx=Max('order'))['mx'] or 0
+            attrs['order'] = last + 1
 
         synth = self._flat_to_contents(initial | attrs)
         if synth:
             attrs['contents'] = synth
+
         return attrs
 
     @transaction.atomic
@@ -176,7 +176,6 @@ class LessonSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         contents = validated_data.pop('contents', None)
 
-        # обновляем плоские поля (включая module через module_id→source='module')
         for k, v in validated_data.items():
             setattr(instance, k, v)
         instance.save()
@@ -198,7 +197,6 @@ class LessonSerializer(serializers.ModelSerializer):
         return instance
 
 
-# ---------- Progress / списки для каталога / публичка ----------
 class LessonProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = LessonProgress

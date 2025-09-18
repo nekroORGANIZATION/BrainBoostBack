@@ -1,13 +1,11 @@
-# lesson/views.py
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from django.db import transaction, models
 from django.db.models import Exists, OuterRef, Subquery, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.text import slugify
 
-from rest_framework import generics, permissions, parsers, status
+from rest_framework import generics, permissions, parsers
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
@@ -20,10 +18,8 @@ from .serializers import (
     ModuleSerializer, ModuleReorderSerializer,
     LessonSerializer, LessonBlockSerializer,
     LessonProgressSerializer, LessonPublicListWithProgressSerializer,
-    LessonListSerializer
 )
-from .pagination import TenByDefaultPagination
-from .permissions import HasCourseAccess, IsCourseAuthorOrStaff, IsTeacherOrAdmin
+from .permissions import HasCourseAccess, IsCourseAuthorOrStaff
 
 
 # -------- helper for object-level permission --------
@@ -47,6 +43,11 @@ class ModuleListCreateView(generics.ListCreateAPIView):
         qs = Module.objects.select_related('course').all()
         if course_id:
             qs = qs.filter(course_id=course_id)
+        ordering = self.request.query_params.get('ordering') or 'order,id'
+        try:
+            qs = qs.order_by(*[o.strip() for o in ordering.split(',') if o.strip()])
+        except Exception:
+            qs = qs.order_by('order', 'id')
         return qs
 
     def get_course(self, obj):
@@ -116,6 +117,16 @@ class LessonListCreateView(generics.ListCreateAPIView):
     def get_course(self, obj):
         return _get_course_from_obj(obj)
 
+    def perform_create(self, serializer):
+        extra = {}
+        module_id = self.request.query_params.get('module')
+        if module_id and not serializer.validated_data.get('module'):
+            try:
+                extra['module'] = Module.objects.get(pk=module_id)
+            except Module.DoesNotExist:
+                pass
+        serializer.save(**extra)
+
 
 class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
@@ -156,12 +167,8 @@ class LessonReorderView(APIView):
         return Response({"updated": len(lessons)}, status=200)
 
 
-# ----- BLOCKS (зручно для редактора) -----
+# ----- BLOCKS (для редактора) -----
 class LessonBlockListCreateView(APIView):
-    """
-    GET  /admin/lessons/<lesson_id>/blocks/
-    POST /admin/lessons/<lesson_id>/blocks/
-    """
     permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
 
     def get_course(self, obj):
@@ -186,9 +193,6 @@ class LessonBlockListCreateView(APIView):
 
 
 class LessonBlockDetailView(APIView):
-    """
-    PUT/PATCH/DELETE /admin/lessons/<lesson_id>/blocks/<block_id>/
-    """
     permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
 
     def get_course(self, obj):
@@ -222,10 +226,6 @@ class LessonBlockDetailView(APIView):
 
 
 class LessonBlockReorderView(APIView):
-    """
-    PATCH /admin/lessons/<lesson_id>/blocks/reorder/
-    body: { "items": [ {"id":<int>, "order":<int>}, ... ] }
-    """
     permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
 
     def get_course(self, obj):
@@ -437,6 +437,7 @@ def lesson_theory(request, lesson_id):
     except Lesson.DoesNotExist:
         return Response({'detail': 'Not found.'}, status=404)
 
+        
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Subquery, Value, BooleanField, IntegerField
