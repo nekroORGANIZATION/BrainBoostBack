@@ -16,13 +16,13 @@ env:
   IMAGE_TAG: ${{ github.sha }}        # тегуємо збирання SHA + "dev"
 
 concurrency:
-  group: backend-tester-${{ github.ref }}
+  group: backend-prod-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    environment: dev
+    environment: main
     steps:
       - uses: actions/checkout@v4
 
@@ -66,7 +66,7 @@ jobs:
         run: |
           set -euo pipefail
           PORT=22
-          ssh -i "${{ runner.temp }}/tester_ssh_key" -p "$PORT" -o StrictHostKeyChecking=no \
+          ssh -i "${{ runner.temp }}/prod_ssh_key" -p "$PORT" -o StrictHostKeyChecking=no \
             "${{ secrets.PROD_USER }}@${{ secrets.PROD_TARGET_HOST }}" "echo connected"
 
       - name: Login to GHCR on Tester (read)
