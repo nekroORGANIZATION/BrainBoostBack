@@ -163,6 +163,12 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://brainboost.pp.ua",
+    "https://172.17.10.23",   # если ходишь по IP через https
+    "http://localhost:3000",  # если иногда открываешь админку с локалки через прокси/туннель
+]
+
 OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 
 AUTHENTICATION_BACKENDS = [
