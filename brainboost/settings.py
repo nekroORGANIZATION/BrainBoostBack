@@ -158,6 +158,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # Next.js
     "http://172.17.10.23",
+    "https://brainboost.pp.ua/",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
