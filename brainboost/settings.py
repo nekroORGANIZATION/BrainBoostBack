@@ -160,7 +160,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://brainboost.pp.ua/api/",
     "https://brainboost.pp.ua/",
     "http://172.17.10.23:3000",
-    "http://172.17.10.22",
+    "http://172.17.10.23",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
