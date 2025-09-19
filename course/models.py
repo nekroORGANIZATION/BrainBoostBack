@@ -3,9 +3,41 @@ from django.conf import settings
 from django.utils.text import slugify
 from django.db.models import Avg
 from decimal import Decimal, ROUND_HALF_UP
+from django.utils import timezone
+
+
+#  =======================================================================
+class Comment(models.Model):
+    course     = models.ForeignKey('course.Course', on_delete=models.CASCADE, related_name='comments')
+    author     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='comments')
+    text       = models.TextField()
+    parent     = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)          # NEW
+    is_edited  = models.BooleanField(default=False)           # NEW
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['course', '-created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f'Comment by {self.author} on {getattr(self.course, "title", self.course_id)}'
+# =============================================================================
 
 
 class Category(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Language(models.Model):
     name = models.CharField(max_length=100, unique=True)
 
     class Meta:
@@ -26,7 +58,7 @@ class Course(models.Model):
     description = models.TextField()
     price       = models.DecimalField(max_digits=10, decimal_places=2)
     author      = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="courses")
-    language    = models.CharField(max_length=50)
+    language    = models.ForeignKey(Language, on_delete=models.SET_NULL, null=True, blank=True, related_name="courses")
     topic       = models.CharField(max_length=100)
     image       = models.ImageField(upload_to="course_images/", blank=True, null=True)
 
@@ -116,3 +148,16 @@ class CourseDone(models.Model):
 
     def __str__(self):
         return f"{self.user} completed {self.course.title}"
+
+
+class Wishlist(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="wishlists")
+    course = models.ForeignKey("course.Course", on_delete=models.CASCADE, related_name="wishlisted_by")
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ("user", "course")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user} → {getattr(self.course, 'title', self.course_id)}"

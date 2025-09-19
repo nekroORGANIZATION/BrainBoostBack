@@ -132,3 +132,19 @@ class ReviewPendingListAPIView(generics.ListAPIView):
             qs = qs.filter(course_id=course_id)
         return qs
 
+class IsOwnerOrAdmin(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj: Review):
+        return request.user and (request.user.is_staff or obj.user_id == request.user.id)
+
+
+
+class ReviewRetrieveDestroyAPIView(generics.RetrieveDestroyAPIView):
+    """
+    GET /api/reviews/<id>/   — (наразі не обов’язково на фронті)
+    DELETE /api/reviews/<id>/ — видалення (лише адмін)
+    """
+    queryset = Review.objects.all()
+    serializer_class = ReviewAdminSerializer
+    permission_classes = [IsOwnerOrAdmin]
+
+

@@ -4,9 +4,7 @@ from course.models import Course
 
 
 class Module(models.Model):
-    """
-    Логічний розділ курсу. Допомагає групувати уроки і керувати порядком.
-    """
+    """Логічний розділ курсу."""
     course      = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='modules')
     title       = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -28,24 +26,25 @@ class Lesson(models.Model):
         PUBLISHED = 'published', 'Published'
         ARCHIVED  = 'archived', 'Archived'
 
-    course         = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='lessons')
-    module         = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name='lessons')
+    course       = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='lessons')
+    module       = models.ForeignKey(Module, on_delete=models.SET_NULL, null=True, blank=True, related_name='lessons')
 
-    title          = models.CharField(max_length=200)
-    slug           = models.SlugField(max_length=220, unique=True)
+    title        = models.CharField(max_length=200)
+    # slug є, але ми ним не користуємось для валідації/унікальності
+    slug         = models.SlugField(max_length=255, null=True, blank=True)
 
-    summary        = models.TextField(blank=True)
-    order          = models.PositiveIntegerField(default=0, db_index=True)
-    status         = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    summary      = models.TextField(blank=True)   # для карток/пошуку (може генеритись з першого текст-блоку)
+    order        = models.PositiveIntegerField(default=0, db_index=True)
+    status       = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
 
-    scheduled_at   = models.DateTimeField(null=True, blank=True)
-    published_at   = models.DateTimeField(null=True, blank=True)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
 
-    duration_min   = models.PositiveIntegerField(null=True, blank=True)  # опц.: тривалість уроку хв.
-    cover_image    = models.ImageField(upload_to='lesson_covers/', null=True, blank=True)
+    duration_min = models.PositiveIntegerField(null=True, blank=True)
+    cover_image  = models.ImageField(upload_to='lesson_covers/', null=True, blank=True)
 
-    created_at     = models.DateTimeField(auto_now_add=True)
-    updated_at     = models.DateTimeField(auto_now=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    updated_at   = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['order', 'id']
@@ -54,7 +53,7 @@ class Lesson(models.Model):
             models.Index(fields=['module']),
             models.Index(fields=['status']),
         ]
-        unique_together = [('course', 'title')]
+        # ⬇️ важливо: НЕ обмежуємо унікальність (course, title) і НЕ робимо slug унікальним
 
     def __str__(self):
         return self.title
@@ -62,24 +61,26 @@ class Lesson(models.Model):
 
 class LessonContent(models.Model):
     """
-    Блочний контент уроку (редактор з блоків).
+    Блочний контент уроку.
     data — JSON зі структурою під тип.
     """
     class Type(models.TextChoices):
-        TEXT      = 'text',      'Text'
-        IMAGE     = 'image',     'Image'
-        VIDEO     = 'video',     'Video'
-        CODE      = 'code',      'Code'
-        FILE      = 'file',      'File'
-        QUOTE     = 'quote',     'Quote'
-        CHECKLIST = 'checklist', 'Checklist'
-        HTML      = 'html',      'HTML'
+        TEXT      = 'text',      'Text'       # data: {html | text}
+        IMAGE     = 'image',     'Image'      # data: {url, caption?}
+        VIDEO     = 'video',     'Video'      # data: {url}
+        CODE      = 'code',      'Code'       # data: {language, code, runnable?}
+        FILE      = 'file',      'File'       # data: {url, name?}
+        QUOTE     = 'quote',     'Quote'      # data: {text, cite?}
+        CHECKLIST = 'checklist', 'Checklist'  # data: {items: [{text, checked}]}
+        HTML      = 'html',      'HTML'       # data: {html}
+        COLUMNS   = 'columns',   'Columns'    # data: {cols: [{html}, {html}]}
+        CALLOUT   = 'callout',   'Callout'    # data: {tone: info|warn|ok, html}
 
-    lesson   = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='contents')
-    type     = models.CharField(max_length=16, choices=Type.choices)
-    data     = models.JSONField(default=dict, blank=True)  # {text, url, language, items, ...}
-    order    = models.PositiveIntegerField(default=0, db_index=True)
-    is_hidden= models.BooleanField(default=False)
+    lesson    = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='contents')
+    type      = models.CharField(max_length=16, choices=Type.choices)
+    data      = models.JSONField(default=dict, blank=True)
+    order     = models.PositiveIntegerField(default=0, db_index=True)
+    is_hidden = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['order', 'id']
@@ -90,20 +91,18 @@ class LessonContent(models.Model):
 
 
 class LessonProgress(models.Model):
-    """
-    Прогрес користувача по уроку.
-    """
     class State(models.TextChoices):
         NOT_STARTED = 'not_started', 'Not started'
         STARTED     = 'started',     'Started'
         COMPLETED   = 'completed',   'Completed'
 
-    user        = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lesson_progress')
-    lesson      = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='progress')
-    state       = models.CharField(max_length=16, choices=State.choices, default=State.NOT_STARTED)
-    started_at  = models.DateTimeField(null=True, blank=True)
-    completed_at= models.DateTimeField(null=True, blank=True)
-    updated_at  = models.DateTimeField(auto_now=True)
+    user           = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='lesson_progress')
+    lesson         = models.ForeignKey(Lesson, on_delete=models.CASCADE, related_name='progress')
+    state          = models.CharField(max_length=16, choices=State.choices, default=State.NOT_STARTED)
+    result_percent = models.IntegerField(null=True, blank=True)
+    started_at     = models.DateTimeField(null=True, blank=True)
+    completed_at   = models.DateTimeField(null=True, blank=True)
+    updated_at     = models.DateTimeField(auto_now=True)
 
     class Meta:
         unique_together = [('user', 'lesson')]

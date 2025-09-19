@@ -3,102 +3,98 @@ from rest_framework import serializers
 from .models import Test, Question, Choice, TestAttempt, AnswerAttempt
 
 
-# ---------- Choices ----------
+# ---------- Choice ----------
 
 class ChoiceSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+
     class Meta:
         model = Choice
-        fields = ['id', 'text', 'is_correct', 'order']
-        read_only_fields = ['id']
+        fields = ['id', 'text', 'is_correct', 'order', 'feedback']
 
 
 class ChoicePublicSerializer(serializers.ModelSerializer):
-    """Варіант без is_correct — якщо захочеш віддавати без додаткової очистки у view."""
+    """Public variant without correctness flag."""
     class Meta:
         model = Choice
         fields = ['id', 'text', 'order']
         read_only_fields = ['id']
 
 
-# ---------- Questions ----------
+# ---------- Question ----------
 
 class QuestionSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
     choices = ChoiceSerializer(many=True, required=False)
 
     class Meta:
         model = Question
         fields = [
-            'id', 'type', 'text', 'explanation', 'points', 'difficulty',
-            'required', 'spec', 'order', 'choices'
+            'id', 'text', 'type', 'points', 'order',
+            'explanation', 'difficulty', 'required', 'spec',
+            'choices'
         ]
-        read_only_fields = ['id']
 
-    # Валідація під типи
-    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
-        qtype = attrs.get('type') or getattr(self.instance, 'type', None)
-        choices_payload = self.initial_data.get('choices', None)
+    def create(self, validated_data):
+        choices_data = validated_data.pop('choices', [])
+        q = Question.objects.create(**validated_data)
 
-        if qtype in ['single', 'multiple', 'true_false']:
-            # Для варіантних типів мають бути choices
-            if self.instance is None and not choices_payload:
-                raise serializers.ValidationError("Для варіантних типів необхідний список choices.")
-            if choices_payload:
-                correct = [c for c in choices_payload if bool(c.get('is_correct'))]
-                if qtype in ['single', 'true_false'] and len(correct) != 1:
-                    raise serializers.ValidationError("Для single/true_false повинен бути рівно 1 правильний варіант.")
-                if qtype == 'multiple' and len(correct) < 1:
-                    raise serializers.ValidationError("Для multiple має бути щонайменше 1 правильний варіант.")
-
-        # Для short можна задати еталони у spec['answers'] (список рядків)
-        if qtype == 'short':
-            spec = attrs.get('spec', getattr(self.instance, 'spec', {})) or {}
-            ans = spec.get('answers')
-            if ans is not None and not isinstance(ans, list):
-                raise serializers.ValidationError("spec['answers'] для short має бути масивом рядків.")
-
-        # Для match/order можна задати spec['solution'] (JSON)
-        if qtype in ['match', 'order']:
-            spec = attrs.get('spec', getattr(self.instance, 'spec', {})) or {}
-            sol = spec.get('solution', None)
-            if sol is not None and not isinstance(sol, (list, dict)):
-                raise serializers.ValidationError("spec['solution'] має бути dict або list.")
-
-        return attrs
-
-    def create(self, validated: Dict[str, Any]) -> Question:
-        choices_data = self.initial_data.get('choices', [])
-        q = Question.objects.create(**validated)
-        if choices_data:
-            # збережемо порядок, якщо прийшов
-            bulk = []
-            for idx, c in enumerate(choices_data):
-                bulk.append(Choice(question=q, text=c['text'], is_correct=bool(c.get('is_correct')),
-                                   order=c.get('order', idx), feedback=c.get('feedback', '')))
-            Choice.objects.bulk_create(bulk)
+        # Short/Long — keep single "etalon" choice as correct (for uniform FE DTO)
+        if q.type in ['short', 'long'] and choices_data:
+            Choice.objects.create(
+                question=q, text=choices_data[0].get('text', ''), is_correct=True, order=1
+            )
+        else:
+            for c in choices_data:
+                Choice.objects.create(question=q, **c)
         return q
 
-    def update(self, instance: Question, validated: Dict[str, Any]) -> Question:
-        choices_data = self.initial_data.get('choices', None)
+    def update(self, instance, validated_data):
+        choices_data = validated_data.pop('choices', None)
 
-        for k, v in validated.items():
-            setattr(instance, k, v)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
 
         if choices_data is not None:
-            # перезапис списком — простіше для конструктора
-            instance.choices.all().delete()
-            bulk = []
-            for idx, c in enumerate(choices_data):
-                bulk.append(Choice(question=instance, text=c['text'], is_correct=bool(c.get('is_correct')),
-                                   order=c.get('order', idx), feedback=c.get('feedback', '')))
-            Choice.objects.bulk_create(bulk)
+            if instance.type in ['short', 'long']:
+                # single etalon
+                if choices_data:
+                    etalon = instance.choices.filter(is_correct=True).first()
+                    text_val = choices_data[0].get('text', '')
+                    if etalon:
+                        etalon.text = text_val
+                        etalon.order = 1
+                        etalon.is_correct = True
+                        etalon.save()
+                    else:
+                        Choice.objects.create(
+                            question=instance, text=text_val, is_correct=True, order=1
+                        )
+                # drop others
+                instance.choices.exclude(is_correct=True).delete()
+            else:
+                keep_ids = []
+                for cd in choices_data:
+                    cid = cd.get('id')
+                    if cid:
+                        ch = Choice.objects.get(id=cid, question=instance)
+                        for a, v in cd.items():
+                            setattr(ch, a, v)
+                        ch.save()
+                        keep_ids.append(ch.id)
+                    else:
+                        ch = Choice.objects.create(question=instance, **cd)
+                        keep_ids.append(ch.id)
+                Choice.objects.filter(question=instance).exclude(id__in=keep_ids).delete()
 
         return instance
 
 
-# ---------- Tests ----------
+# ---------- Test ----------
 
 class TestSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
     questions = QuestionSerializer(many=True, required=False)
 
     class Meta:
@@ -108,48 +104,50 @@ class TestSerializer(serializers.ModelSerializer):
             'status', 'opens_at', 'closes_at',
             'time_limit_sec', 'attempts_allowed', 'pass_mark',
             'shuffle_questions', 'shuffle_options', 'show_feedback_mode',
-            'questions',
-            'created_at', 'updated_at',
+            'questions'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
 
-    def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
-        attempts_allowed = attrs.get('attempts_allowed', getattr(self.instance, 'attempts_allowed', 1))
-        pass_mark = float(attrs.get('pass_mark', getattr(self.instance, 'pass_mark', 0)))
-        if attempts_allowed < 0:
-            raise serializers.ValidationError("attempts_allowed не може бути відʼємним.")
-        # Якщо інтерпретуємо як відсоток:
-        if pass_mark < 0:
-            raise serializers.ValidationError("pass_mark не може бути відʼємним.")
-        return attrs
+    def create(self, validated_data):
+        questions_data = validated_data.pop('questions', [])
+        test = Test.objects.create(**validated_data)
+        # keep order from payload
+        for qd in questions_data:
+            choices = qd.pop('choices', [])
+            q = Question.objects.create(test=test, **qd)
+            for cd in choices:
+                Choice.objects.create(question=q, **cd)
+        return test
 
-    def create(self, validated: Dict[str, Any]) -> Test:
-        qlist = self.initial_data.get('questions', [])
-        t = Test.objects.create(**validated)
-        # створимо питання пакетно
-        for idx, q in enumerate(qlist):
-            q_payload = {**q, 'test': t, 'order': q.get('order', idx)}
-            QuestionSerializer().create(q_payload)
-        return t
+    def update(self, instance, validated_data):
+        questions_data = validated_data.pop('questions', None)
 
-    def update(self, instance: Test, validated: Dict[str, Any]) -> Test:
-        qlist = self.initial_data.get('questions', None)
-
-        for k, v in validated.items():
-            setattr(instance, k, v)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
         instance.save()
 
-        if qlist is not None:
-            # Перезапис повним списком (зручно у конструкторі тесту)
-            instance.questions.all().delete()
-            for idx, q in enumerate(qlist):
-                q_payload = {**q, 'test': instance, 'order': q.get('order', idx)}
-                QuestionSerializer().create(q_payload)
+        if questions_data is not None:
+            keep_ids = []
+            # Reuse the QuestionSerializer.update for nested updates
+            qser = QuestionSerializer()
+            for qd in questions_data:
+                qid = qd.get('id')
+                if qid:
+                    q = Question.objects.get(id=qid, test=instance)
+                    qser.update(q, qd)
+                    keep_ids.append(q.id)
+                else:
+                    choices = qd.pop('choices', [])
+                    q = Question.objects.create(test=instance, **qd)
+                    for cd in choices:
+                        Choice.objects.create(question=q, **cd)
+                    keep_ids.append(q.id)
+
+            Question.objects.filter(test=instance).exclude(id__in=keep_ids).delete()
 
         return instance
 
 
-# ---------- Attempts (read-only серіалізатори для відповідей) ----------
+# ---------- Read-only for attempts ----------
 
 class AnswerAttemptReadSerializer(serializers.ModelSerializer):
     selected_option_ids = serializers.SerializerMethodField()
@@ -180,8 +178,8 @@ class TestAttemptSerializer(serializers.ModelSerializer):
         ]
 
 
-# Опційно: «повний» серіалізатор спроби з відповідями (для вчителя/after_close)
 class TestAttemptDetailSerializer(TestAttemptSerializer):
+    """Full attempt (teacher or after_close)"""
     answers = AnswerAttemptReadSerializer(many=True, read_only=True)
 
     class Meta(TestAttemptSerializer.Meta):

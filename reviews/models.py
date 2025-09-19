@@ -24,7 +24,6 @@ class Review(models.Model):
     rating = models.PositiveSmallIntegerField()
     text = models.TextField()
 
-    tags = models.CharField(max_length=255, blank=True, default='')
     video_url = models.URLField(blank=True, default='')
 
     status = models.CharField(
