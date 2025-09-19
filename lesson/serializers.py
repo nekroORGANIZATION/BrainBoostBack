@@ -80,16 +80,17 @@ class LessonSerializer(serializers.ModelSerializer):
 
     # READ: nested module
     module = ModuleLiteSerializer(read_only=True)
-    # WRITE: PK для ForeignKey
+
+    # WRITE: приймаємо module_id (офіційно) + зручно мапимо body.module/qp ?module
     module_id = serializers.PrimaryKeyRelatedField(
         source='module',
         queryset=Module.objects.all(),
         write_only=True,
         required=False,
-        allow_null=True
+        allow_null=True,
     )
 
-    # совместимость со старым форматом создания
+    # сумісність зі старим плоским форматом
     type = serializers.CharField(write_only=True, required=False, allow_blank=False)
     content_text = serializers.CharField(write_only=True, required=False, allow_blank=True)
     content_url  = serializers.CharField(write_only=True, required=False, allow_blank=True)
@@ -98,7 +99,7 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'course',
-            'module', 'module_id',       
+            'module', 'module_id',          # <-- read + write
             'title', 'slug',
             'summary', 'order', 'status', 'scheduled_at', 'published_at',
             'duration_min', 'cover_image',
@@ -107,6 +108,29 @@ class LessonSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+    # --- NEW: мапимо body.module/qp ?module у module_id ---
+    def to_internal_value(self, data):
+        data = data.copy() if isinstance(data, dict) else data
+
+        # якщо прислали body.module = <int|str|{"id":...}> — підставимо module_id
+        if isinstance(data, dict) and 'module_id' not in data and 'module' in data:
+            mod_val = data.get('module')
+            if isinstance(mod_val, dict) and 'id' in mod_val:
+                data['module_id'] = mod_val['id']
+            else:
+                data['module_id'] = mod_val
+
+        # якщо й досі немає — заберемо з query params (?module=)
+        if isinstance(data, dict) and 'module_id' not in data:
+            req = self.context.get('request')
+            if req:
+                qp_mod = req.query_params.get('module')
+                if qp_mod not in (None, ''):
+                    data['module_id'] = qp_mod
+
+        return super().to_internal_value(data)
+    # --- /NEW ---
 
     def _normalize_type(self, t: str) -> str:
         return (t or '').strip().lower()
@@ -127,8 +151,10 @@ class LessonSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         initial = getattr(self, 'initial_data', {}) or {}
 
+        # summary — залишаємо як прийшло
         attrs['summary'] = initial.get('summary', attrs.get('summary', ''))
 
+        # синтез контенту зі старих полів, якщо contents не передані
         if 'contents' in initial and initial['contents'] is not None:
             pass
         else:
@@ -136,7 +162,7 @@ class LessonSerializer(serializers.ModelSerializer):
             if synth:
                 attrs['contents'] = synth
 
-        # якщо order не передали — поставимо наступний у межах модуля (або курсу)
+        # якщо order не передали — ставимо наступний у межах МОДУЛЯ (якщо є), інакше у межах курсу
         if not attrs.get('order'):
             qs = Lesson.objects.filter(course=attrs.get('course'))
             if attrs.get('module'):
@@ -144,6 +170,7 @@ class LessonSerializer(serializers.ModelSerializer):
             last = qs.aggregate(mx=Max('order'))['mx'] or 0
             attrs['order'] = last + 1
 
+        # ще раз на випадок змін
         synth = self._flat_to_contents(initial | attrs)
         if synth:
             attrs['contents'] = synth
@@ -153,7 +180,7 @@ class LessonSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         contents = validated_data.pop('contents', [])
-        # убираем служебные поля старого формата
+        # прибираємо службові з плоского формату
         validated_data.pop('type', None)
         validated_data.pop('content_text', None)
         validated_data.pop('content_url', None)
@@ -180,7 +207,7 @@ class LessonSerializer(serializers.ModelSerializer):
             setattr(instance, k, v)
         instance.save()
 
-        # полная замена массива блоков (если передали)
+        # повна заміна масиву блоків (якщо передали)
         if contents is not None:
             instance.contents.all().delete()
             bulk = [
@@ -206,8 +233,7 @@ class LessonProgressSerializer(serializers.ModelSerializer):
 
 class LessonPublicListWithProgressSerializer(serializers.ModelSerializer):
     """
-    Публичный список уроков с прогрессом пользователя.
-    Чтение: module — вложенный объект; order — для стабильной сортировки на фронте.
+    Публічний список уроків із прогресом.
     """
     completed = serializers.BooleanField(read_only=True)
     result_percent = serializers.IntegerField(read_only=True, allow_null=True)
@@ -223,6 +249,7 @@ class LessonPublicListWithProgressSerializer(serializers.ModelSerializer):
         ]
 
 
+# (не чіпав) — якщо він у тебе використовується
 class LessonListSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     title = serializers.CharField()
