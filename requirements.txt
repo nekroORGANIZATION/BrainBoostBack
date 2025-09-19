@@ -10,4 +10,6 @@ Pillow
 dj_rest_auth
 django-allauth
 django-filter
+qrcode[pil]
+reportlab
 psycopg[binary]==3.1.*
