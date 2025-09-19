@@ -38,6 +38,9 @@ INSTALLED_APPS = [
     'tests',
     'contacts',
     'reviews',
+    'tips',
+    'stories',
+    'chat',
 
     # Third-party
     'rest_framework',
@@ -90,9 +93,9 @@ WSGI_APPLICATION = 'brainboost.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'app_prod',
-        'USER': 'app_prod_user',
-        'PASSWORD': 'ProdPass123',
+        'NAME': 'app_dev',
+        'USER': 'app_dev_user',
+        'PASSWORD': 'PASSWORD123',
         'HOST': '172.17.10.25',
         'PORT': '5432',
     }
@@ -148,13 +151,12 @@ REST_FRAMEWORK = {
         'rest_framework.filters.OrderingFilter',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 5,
+    'PAGE_SIZE': 6,
 }
 
 # CORS
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://172.17.10.22:3000"
+    "http://localhost:3000",  # Next.js
 ]
 CORS_ALLOW_CREDENTIALS = True
 
