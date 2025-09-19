@@ -26,7 +26,7 @@ urlpatterns = [
     path('api/admin/', admin.site.urls),
     path('accounts/', include('accounts.urls')),
     path('courses/', include('course.urls')),
-    path('api/courses/', include('course.urls')),
+    #path('api/courses/', include('course.urls')),
     path('api-token-auth/', obtain_auth_token, name='api_token_auth'),
     path('courses/all/', include('courses_list.urls')),
     path('api/lesson/', include('lesson.urls')),
