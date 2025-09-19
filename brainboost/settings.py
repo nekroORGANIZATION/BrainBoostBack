@@ -89,8 +89,12 @@ WSGI_APPLICATION = 'brainboost.wsgi.application'
 # Database
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'app_dev',
+        'USER': 'app_dev_user',
+        'PASSWORD': '6b2f7c261b23926e83d80ab030b1814982c41d5689c35d05',
+        'HOST': '172.17.10.25',
+        'PORT': '5432',
     }
 }
 
