@@ -1,7 +1,8 @@
 from __future__ import annotations
 from typing import Optional
+
 from django.db import transaction, models
-from django.db.models import Exists, OuterRef, Subquery, Q
+from django.db.models import Exists, OuterRef, Subquery, Q, Value, BooleanField, IntegerField
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
@@ -94,7 +95,8 @@ class ModuleReorderView(APIView):
 class LessonListCreateView(generics.ListCreateAPIView):
     """
     GET:   ?course=&module=&ordering=
-    POST:  створення уроку (як з contents[], так і у старому форматі type/content_*)
+    POST:  створення уроку (і через contents[], і через старий плоский формат).
+           Тепер приймає module у трьох місцях: body.module, body.module_id, ?module=
     """
     serializer_class = LessonSerializer
     permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
@@ -118,21 +120,28 @@ class LessonListCreateView(generics.ListCreateAPIView):
     def get_course(self, obj):
         return _get_course_from_obj(obj)
 
+    # --- FIX: біндімо module, якщо сериалайзер не отримав (для 100% надійності)
     def perform_create(self, serializer):
         extra = {}
-        module_id = self.request.query_params.get('module')
-        if module_id and not serializer.validated_data.get('module'):
-            try:
-                extra['module'] = Module.objects.get(pk=module_id)
-            except Module.DoesNotExist:
-                pass
+        if not serializer.validated_data.get('module'):
+            module_id = (
+                self.request.data.get('module_id')
+                or self.request.data.get('module')
+                or self.request.query_params.get('module')
+            )
+            if module_id not in (None, ''):
+                try:
+                    extra['module'] = Module.objects.get(pk=module_id)
+                except Module.DoesNotExist:
+                    pass
         serializer.save(**extra)
+    # --- /FIX ---
 
 
 class LessonDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET/PATCH/DELETE /admin/lessons/<pk>/
-    PATCH приймає як плоскі поля (title, summary, ...) так і contents[] для повної заміни блоків.
+    PATCH приймає як плоскі поля (title, summary, ...) так і contents[]/module(_id)
     """
     queryset = Lesson.objects.select_related('course', 'module').prefetch_related('contents').all()
     serializer_class = LessonSerializer
@@ -250,7 +259,7 @@ class LessonBlockReorderView(APIView):
         return Response({"updated": len(blocks)}, status=200)
 
 
-# ============================ PUBLISH / PROGRESS (teacher/student) ============================
+# ============================ PUBLISH / PROGRESS ============================
 class LessonPublishView(APIView):
     permission_classes = [permissions.IsAuthenticated, IsCourseAuthorOrStaff]
 
@@ -414,7 +423,7 @@ class LessonsByCourseView(ListAPIView):
 def annotate_with_user_progress(qs, user):
     if not user or not user.is_authenticated:
         return qs.annotate(
-            completed=models.Value(False, output_field=models.BooleanField()),
+            completed=Value(False, output_field=BooleanField()),
             result_percent=Subquery(LessonProgress.objects.none().values('result_percent')[:1]),
         )
     user_progress = LessonProgress.objects.filter(user=user, lesson=OuterRef('pk'))
@@ -481,25 +490,12 @@ def lesson_theory(request, lesson_id):
     except Lesson.DoesNotExist:
         return Response({'detail': 'Not found.'}, status=404)
 
-        
 
-from django.db import transaction
-from django.db.models import Exists, OuterRef, Subquery, Value, BooleanField, IntegerField
-
-from rest_framework.generics import ListAPIView
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
-
-from .models import Lesson, LessonProgress
-from .serializers import LessonPublicListWithProgressSerializer
-
-
-
-# === Public list with user progress (для страницы курса) ===
+# === Public list with user progress (для сторінки курсу) ===
 class CourseLessonsWithProgressView(ListAPIView):
     """
     GET /api/lesson/courses/<course_id>/lessons/
-    Отдаёт список уроков курса с аннотациями прогресса текущего пользователя,
-    и сразу подтягивает module, чтобы не ловить N+1.
+    Видає список уроків курсу з анотаціями прогресу й одразу підтягує module.
     """
     serializer_class = LessonPublicListWithProgressSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
