@@ -157,7 +157,7 @@ REST_FRAMEWORK = {
 # CORS
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://172.17.10.23:3000",
+    "https://brainboost.pp.ua/api/",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
