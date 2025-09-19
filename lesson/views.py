@@ -4,6 +4,7 @@ from django.db import transaction, models
 from django.db.models import Exists, OuterRef, Subquery, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from rest_framework.permissions import IsAuthenticated
 
 from rest_framework import generics, permissions, parsers
 from rest_framework.views import APIView
@@ -281,39 +282,82 @@ class LessonPublishView(APIView):
 class LessonProgressUpsertView(APIView):
     """
     POST /progress/<lesson_id>/
-    body: {"state": "started|completed", "result_percent": 0..100?}
+    body: {
+        "state": "started|completed",
+        "answers": {block_id: answer},   # опційно
+        "result_percent": 42             # нове поле для ручного встановлення
+    }
     """
-    permission_classes = [permissions.IsAuthenticated, HasCourseAccess]
-
-    def get_course(self, obj):
-        return _get_course_from_obj(obj)
+    permission_classes = [IsAuthenticated, HasCourseAccess]
 
     @transaction.atomic
     def post(self, request, lesson_id: int):
         lesson = get_object_or_404(Lesson.objects.select_related('course'), pk=lesson_id)
+        user = request.user
+
         state = request.data.get('state')
         if state not in (LessonProgress.State.STARTED, LessonProgress.State.COMPLETED):
             return Response({"detail": "Невірний state."}, status=400)
 
-        rp = request.data.get('result_percent', None)
+        answers = request.data.get("answers", {})
+
+        # нове поле result_percent
+        rp = request.data.get("result_percent")
         if rp is not None:
             try:
                 rp = int(rp)
-                if not (0 <= rp <= 100):
-                    raise ValueError
+                if rp < 0: rp = 0
+                if rp > 100: rp = 100
             except Exception:
-                return Response({"detail": "result_percent має бути integer 0..100."}, status=400)
+                rp = 0
+        else:
+            # якщо не передано, тоді обчислюємо як раніше
+            def calculate_result_percent(lesson: Lesson, answers: dict) -> int | None:
+                correct = 0
+                total = 0
+                for block in lesson.contents.all():
+                    block_id_str = str(block.id)
+                    user_answer = answers.get(block_id_str)
+                    if user_answer is None:
+                        continue
 
-        lp, _ = LessonProgress.objects.get_or_create(user=request.user, lesson=lesson)
-        lp.state = state
+                    if block.type in ["short", "long", "code"]:
+                        correct_answer = (block.data.get("correct_answer") or "").strip().lower()
+                        if str(user_answer).strip().lower() == correct_answer:
+                            correct += 1
+                        total += 1
+
+                    elif block.type == "single":
+                        correct_option = block.data.get("correct_option_id")
+                        if correct_option is not None and int(user_answer) == int(correct_option):
+                            correct += 1
+                        total += 1
+
+                    elif block.type == "multiple":
+                        correct_options = set(block.data.get("correct_option_ids", []))
+                        user_options = set(user_answer if isinstance(user_answer, list) else [user_answer])
+                        if correct_options == user_options:
+                            correct += 1
+                        total += 1
+
+                return int(correct / total * 100) if total > 0 else 0
+
+            rp = calculate_result_percent(lesson, answers)
+
+        # ===== отримуємо або створюємо прогрес =====
+        lp, created = LessonProgress.objects.get_or_create(user=user, lesson=lesson)
         now = timezone.now()
+
+        # ===== оновлюємо стани =====
+        lp.state = state
         if state == LessonProgress.State.STARTED and not lp.started_at:
             lp.started_at = now
         if state == LessonProgress.State.COMPLETED:
             lp.completed_at = now
-        if rp is not None:
-            lp.result_percent = rp
-        lp.save()
+        lp.result_percent = rp
+
+        lp.save(update_fields=['state', 'result_percent', 'started_at', 'completed_at', 'updated_at'])
+
         return Response(LessonProgressSerializer(lp).data, status=200)
 
 

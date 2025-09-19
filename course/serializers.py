@@ -101,6 +101,7 @@ class AuthorMiniSerializer(serializers.Serializer):
 class CourseListSerializer(serializers.ModelSerializer):
     author = AuthorMiniSerializer(source="author.__dict__", read_only=True)
     category_name = serializers.CharField(source="category.name", read_only=True)
+    language_name = serializers.CharField(source="language.name", read_only=True)
     total_lessons = serializers.IntegerField(read_only=True)
     is_purchased = serializers.SerializerMethodField()
     rating = serializers.DecimalField(max_digits=3, decimal_places=2, read_only=True)
@@ -108,7 +109,7 @@ class CourseListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
         fields = [
-            "id", "slug", "title", "description", "price", "language", "topic",
+            "id", "slug", "title", "description", "price", "language", "language_name", "topic",
             "image", "rating", "category", "category_name",
             "status", "created_at", "updated_at",
             "total_lessons", "is_purchased", "author",
