@@ -37,7 +37,7 @@ urlpatterns = [
 
     # Purchase / access
     path("me/purchased/", UserPurchasedCoursesView.as_view(), name="course-purchased"),
-    path("<slug:slug>/enroll/", EnrollCourseView.as_view(), name="course-enroll-dev"),
+    path("<int:pk>/enroll/", EnrollCourseView.as_view(), name="course-enroll"),
 
     # Comments
     path("<slug:slug>/comments/", CommentListCreateView.as_view(), name="course-comments"),
