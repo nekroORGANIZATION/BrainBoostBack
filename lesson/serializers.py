@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from django.db import transaction
 from django.db.models import Max
@@ -22,7 +22,7 @@ class ModuleReorderSerializer(serializers.Serializer):
     )
 
 
-# Лёгкий модуль для встраивания в уроки
+# Легка версія модуля для вбудовування в уроки
 class ModuleLiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Module
@@ -50,7 +50,7 @@ class LessonBlockSerializer(serializers.ModelSerializer):
             if not strf(data.get('url', '')):
                 raise serializers.ValidationError({'data': f'{t}.url required'})
         elif t == 'code':
-            if not strf(data.get('code', '')) or not strf(data.get('language', '')):
+            if not strf(data.get('code', '')) or not strf(data.get('language', '')):  # language: js, py, md тощо
                 raise serializers.ValidationError({'data': 'code.code & code.language required'})
         elif t == 'quote':
             if not strf(data.get('text', '')):
@@ -71,6 +71,7 @@ class LessonBlockSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({'data': 'callout.tone must be info|warn|ok'})
             if not strf(data.get('html', '')):
                 raise serializers.ValidationError({'data': 'callout.html required'})
+        # інші типи — без додаткової валідації
         return attrs
 
 
@@ -78,10 +79,10 @@ class LessonBlockSerializer(serializers.ModelSerializer):
 class LessonSerializer(serializers.ModelSerializer):
     contents = LessonBlockSerializer(many=True, required=False)
 
-    # READ: nested module
+    # READ: nested module (може бути null)
     module = ModuleLiteSerializer(read_only=True)
 
-    # WRITE: приймаємо module_id (офіційно) + зручно мапимо body.module/qp ?module
+    # WRITE: приймаємо module_id + можна кинути module або ?module=
     module_id = serializers.PrimaryKeyRelatedField(
         source='module',
         queryset=Module.objects.all(),
@@ -90,7 +91,7 @@ class LessonSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
 
-    # сумісність зі старим плоским форматом
+    # Сумісність зі старим плоским форматом
     type = serializers.CharField(write_only=True, required=False, allow_blank=False)
     content_text = serializers.CharField(write_only=True, required=False, allow_blank=True)
     content_url  = serializers.CharField(write_only=True, required=False, allow_blank=True)
@@ -99,7 +100,7 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'course',
-            'module', 'module_id',          # <-- read + write
+            'module', 'module_id',          # read + write
             'title', 'slug',
             'summary', 'order', 'status', 'scheduled_at', 'published_at',
             'duration_min', 'cover_image',
@@ -109,11 +110,10 @@ class LessonSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['created_at', 'updated_at']
 
-    # --- NEW: мапимо body.module/qp ?module у module_id ---
+    # --- Мапимо body.module/qp ?module у module_id ---
     def to_internal_value(self, data):
         data = data.copy() if isinstance(data, dict) else data
 
-        # якщо прислали body.module = <int|str|{"id":...}> — підставимо module_id
         if isinstance(data, dict) and 'module_id' not in data and 'module' in data:
             mod_val = data.get('module')
             if isinstance(mod_val, dict) and 'id' in mod_val:
@@ -121,7 +121,7 @@ class LessonSerializer(serializers.ModelSerializer):
             else:
                 data['module_id'] = mod_val
 
-        # якщо й досі немає — заберемо з query params (?module=)
+        # ?module=<id>
         if isinstance(data, dict) and 'module_id' not in data:
             req = self.context.get('request')
             if req:
@@ -129,8 +129,15 @@ class LessonSerializer(serializers.ModelSerializer):
                 if qp_mod not in (None, ''):
                     data['module_id'] = qp_mod
 
+        # Нормалізуємо module_id до int або None (щоб '3' не валив валідацію)
+        if isinstance(data, dict) and 'module_id' in data and data['module_id'] not in (None, ''):
+            try:
+                data['module_id'] = int(data['module_id'])
+            except Exception:
+                pass
+
         return super().to_internal_value(data)
-    # --- /NEW ---
+    # --- /map ---
 
     def _normalize_type(self, t: str) -> str:
         return (t or '').strip().lower()
@@ -151,26 +158,25 @@ class LessonSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         initial = getattr(self, 'initial_data', {}) or {}
 
-        # summary — залишаємо як прийшло
+        # summary — як прийшло
         attrs['summary'] = initial.get('summary', attrs.get('summary', ''))
 
-        # синтез контенту зі старих полів, якщо contents не передані
-        if 'contents' in initial and initial['contents'] is not None:
-            pass
-        else:
+        # Якщо contents не передані — пробуємо зібрати зі старого плоского формату
+        if not ('contents' in initial and initial['contents'] is not None):
             synth = self._flat_to_contents(initial | attrs)
             if synth:
                 attrs['contents'] = synth
 
-        # якщо order не передали — ставимо наступний у межах МОДУЛЯ (якщо є), інакше у межах курсу
-        if not attrs.get('order'):
+        # Обчислюємо order лише якщо явно не заданий
+        # (None або 0 трактуємо як "не задано" — останній в межах модуля/курсу)
+        if attrs.get('order') in (None, 0):
             qs = Lesson.objects.filter(course=attrs.get('course'))
             if attrs.get('module'):
                 qs = qs.filter(module=attrs['module'])
             last = qs.aggregate(mx=Max('order'))['mx'] or 0
             attrs['order'] = last + 1
 
-        # ще раз на випадок змін
+        # ще раз, раптом змінився тип
         synth = self._flat_to_contents(initial | attrs)
         if synth:
             attrs['contents'] = synth
@@ -180,7 +186,7 @@ class LessonSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         contents = validated_data.pop('contents', [])
-        # прибираємо службові з плоского формату
+        # прибираємо службові зі старого формату
         validated_data.pop('type', None)
         validated_data.pop('content_text', None)
         validated_data.pop('content_url', None)
@@ -233,11 +239,15 @@ class LessonProgressSerializer(serializers.ModelSerializer):
 
 class LessonPublicListWithProgressSerializer(serializers.ModelSerializer):
     """
-    Публічний список уроків із прогресом.
+    Публічний список уроків із прогресом для сторінок курсу/розділів.
     """
     completed = serializers.BooleanField(read_only=True)
     result_percent = serializers.IntegerField(read_only=True, allow_null=True)
+
+    # модуль може бути None — це ок
     module = ModuleLiteSerializer(read_only=True)
+    module_id = serializers.IntegerField(source='module.id', read_only=True, allow_null=True)
+
     order = serializers.IntegerField(read_only=True)
 
     class Meta:
@@ -245,11 +255,11 @@ class LessonPublicListWithProgressSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'summary', 'duration_min', 'cover_image',
             'completed', 'result_percent',
-            'module', 'order',
+            'module', 'module_id', 'order',
         ]
 
 
-# (не чіпав) — якщо він у тебе використовується
+# (залишаємо як було — якщо десь використовується)
 class LessonListSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     title = serializers.CharField()

@@ -34,6 +34,23 @@ def _get_course_from_obj(obj) -> Optional[Course]:
         return obj.lesson.course
     return None
 
+# --- новий список модулів курсу ---
+class CourseModulesView(ListAPIView):
+    """
+    GET /api/lesson/courses/<course_id>/modules/
+    Повертає видимі модулі курсу у правильному порядку.
+    """
+    serializer_class = ModuleSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        course_id = self.kwargs["course_id"]
+        return (
+            Module.objects
+            .filter(course_id=course_id, is_visible=True)
+            .select_related("course")
+            .order_by("order", "id")
+        )
 
 # ============================ MODULES (teacher) ============================
 class ModuleListCreateView(generics.ListCreateAPIView):
@@ -523,3 +540,6 @@ class CourseLessonsWithProgressView(ListAPIView):
                 result_percent=Value(None, output_field=IntegerField()),
             )
         return qs
+    
+
+    
