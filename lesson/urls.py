@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     CourseLessonsWithProgressView,
     # modules
-    ModuleListCreateView, ModuleDetailView, ModuleReorderView,
+    ModuleListCreateView, ModuleDetailView, ModuleReorderView, CourseModulesView,
     # lessons
     LessonListCreateView, LessonDetailView, LessonReorderView,
     LessonBlockListCreateView, LessonBlockDetailView, LessonBlockReorderView,
@@ -35,6 +35,7 @@ urlpatterns = [
     path('public/lessons/<int:id>/', LessonPublicDetailView.as_view(), name='lesson-public-detail'),
     path('public/lessons/id/<int:lesson_id>/', LessonPublicDetailViewById.as_view(), name='lesson-public-detail-id'),
     path('courses/<int:course_id>/lessons/', CourseLessonsWithProgressView.as_view(), name='course-lessons'),
+     path('courses/<int:course_id>/modules/', CourseModulesView.as_view(), name='course-modules'),  # 👈 новий
 
     # -------- Progress
     path('progress/<int:lesson_id>/', LessonProgressUpsertView.as_view(), name='lesson-progress-upsert'),
