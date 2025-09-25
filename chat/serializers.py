@@ -4,16 +4,15 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import Chat, Message, ReadMarker
-from lesson.models import LessonContent  # если модель называется иначе — поправь импорт
+from lesson.models import LessonContent  # якщо імпорт інший — підправ
 
-
-# ---------- Mini: теория ----------
+# ---------- Mini: теорія ----------
 class TheoryMiniSerializer(serializers.ModelSerializer):
     """
-    Безопасный мини-сериализатор теории:
-    - title вычисляем (в модели может не быть поля title)
-    - lesson_id берём через SerializerMethodField (чтобы не ловить assert DRF)
-    - lesson_title через связь lesson.title (если урок есть)
+    Безпечний міні-серіалізатор теорії:
+    - title обчислюється (в моделі може не бути title)
+    - lesson_id через SerializerMethodField (аби уникнути assert DRF)
+    - lesson_title через lesson.title (якщо є)
     """
     title = serializers.SerializerMethodField()
     lesson_id = serializers.SerializerMethodField()
@@ -37,7 +36,7 @@ class TheoryMiniSerializer(serializers.ModelSerializer):
         return f"Теорія #{obj.pk}"
 
     def get_lesson_id(self, obj: LessonContent):
-        # вернёт pk из FK-колонки, даже если самого lesson нет в select_related
+        # повертає FK-значення навіть без select_related
         return getattr(obj, "lesson_id", None)
 
 
@@ -57,10 +56,10 @@ class ChatSerializer(serializers.ModelSerializer):
             "last_message", "last_message_preview",
             "unread_count",
         ]
-        read_only_fields = [
-            "id", "created_at", "updated_at",
-            "last_message", "last_message_preview", "unread_count",
-        ]
+    read_only_fields = [
+        "id", "created_at", "updated_at",
+        "last_message", "last_message_preview", "unread_count",
+    ]
 
     def get_last_message_preview(self, obj: Chat):
         m = obj.last_message
@@ -87,35 +86,69 @@ class ChatSerializer(serializers.ModelSerializer):
 
 
 # ---------- Start Chat ----------
+# ---------- Start Chat ----------
 class ChatStartSerializer(serializers.Serializer):
     """
-    Вход: peer (id собеседника), theory_id (обязателен).
-    Возвращает существующий или создаёт новый чат по этой теории.
+    Вхід: peer (id співрозмовника), theory_id (необов'язковий, якщо є lesson_id).
+    Повертає існуючий або створює новий чат по цій теорії.
     """
     peer = serializers.IntegerField()
-    theory_id = serializers.IntegerField()
+    theory_id = serializers.IntegerField(required=False, allow_null=True)   # ← було required=True
+    lesson_id = serializers.IntegerField(required=False, allow_null=True)   # ← фолбек
 
     def validate(self, attrs):
         request = self.context["request"]
         user = request.user
+        errors = {}
 
+        # ---- peer ----
         User = get_user_model()
         try:
             peer = User.objects.get(id=attrs["peer"])
         except User.DoesNotExist:
-            raise serializers.ValidationError("Користувач (peer) не знайдений.")
+            errors["peer"] = ["Користувач (peer) не знайдений."]
+            raise serializers.ValidationError(errors)
 
         if peer.id == user.id:
-            raise serializers.ValidationError("Неможливо відкрити чат із самим собою.")
+            errors["peer"] = ["Неможливо відкрити чат із самим собою."]
+            raise serializers.ValidationError(errors)
 
-        try:
+        # ---- theory / lesson ----
+        theory = None
+        theory_id = attrs.get("theory_id")
+        lesson_id = attrs.get("lesson_id")
+
+        if theory_id is None and lesson_id is None:
+            # ключове: принаймні одне з полів обов’язкове
+            raise serializers.ValidationError({
+                "theory_id": ["Заповніть theory_id або lesson_id."],
+                "lesson_id": ["Заповніть lesson_id або theory_id."],
+            })
+
+        if theory_id is not None:
+            try:
+                theory = (
+                    LessonContent.objects
+                    .select_related("lesson", "lesson__course")
+                    .get(id=theory_id)
+                )
+            except LessonContent.DoesNotExist:
+                errors["theory_id"] = ["Теорія не знайдена."]
+
+        # фолбек по lesson_id, якщо theory досі не знайдено
+        if theory is None and lesson_id is not None:
             theory = (
                 LessonContent.objects
                 .select_related("lesson", "lesson__course")
-                .get(id=attrs["theory_id"])
+                .filter(lesson_id=lesson_id)
+                .order_by("id")
+                .first()
             )
-        except LessonContent.DoesNotExist:
-            raise serializers.ValidationError("Теорія не знайдена.")
+            if theory is None:
+                errors["lesson_id"] = ["Для цього уроку теорію не знайдено."]
+
+        if errors:
+            raise serializers.ValidationError(errors)
 
         attrs["peer_obj"] = peer
         attrs["theory_obj"] = theory
@@ -132,13 +165,9 @@ class ChatStartSerializer(serializers.Serializer):
         lesson = validated_data["lesson_obj"]
         course = validated_data["course_obj"]
 
-        # инициатор — студент, peer — преподаватель
-        student = user
-        teacher = peer
-
         chat, _ = Chat.objects.get_or_create(
-            student=student,
-            teacher=teacher,
+            student=user,
+            teacher=peer,
             theory=theory,
             defaults={
                 "title": "",
@@ -147,6 +176,7 @@ class ChatStartSerializer(serializers.Serializer):
             },
         )
         return chat
+
 
 
 # ---------- Message ----------
@@ -162,7 +192,8 @@ class MessageSerializer(serializers.ModelSerializer):
         text = (attrs.get("text") or "").strip()
         file = attrs.get("attachment")
         if not text and not file:
-            raise serializers.ValidationError("Message must contain text or attachment.")
+            # FIX: помилка по полю
+            raise serializers.ValidationError({"text": ["Message must contain text or attachment."]})
         return attrs
 
     @transaction.atomic
@@ -172,7 +203,7 @@ class MessageSerializer(serializers.ModelSerializer):
         chat: Chat = validated_data["chat"]
 
         if user.id not in (chat.student_id, chat.teacher_id):
-            raise serializers.ValidationError("You are not a participant of this chat.")
+            raise serializers.ValidationError({"chat": ["You are not a participant of this chat."]})
 
         msg = Message.objects.create(sender=user, **validated_data)
         Chat.objects.filter(pk=chat.pk).update(last_message=msg, updated_at=timezone.now())
@@ -190,7 +221,7 @@ class ReadMarkerSerializer(serializers.ModelSerializer):
         user = request.user
         chat = attrs["chat"]
         if user.id not in (chat.student_id, chat.teacher_id):
-            raise serializers.ValidationError("You are not a participant of this chat.")
+            raise serializers.ValidationError({"chat": ["You are not a participant of this chat."]})
         return attrs
 
     @transaction.atomic

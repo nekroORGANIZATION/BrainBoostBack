@@ -298,12 +298,12 @@ class UserPurchasedCoursesView(generics.ListAPIView):
 
 class EnrollCourseView(APIView):
     """
-    POST /courses/<slug:slug>/enroll/   (dev-режим запису на курс)
+    POST /courses/<int:pk>/enroll/
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, slug: str):
-        course = get_object_or_404(Course, slug=slug, status=Course.Status.PUBLISHED)
+    def post(self, request, pk: int):
+        course = get_object_or_404(Course, pk=pk, status=Course.Status.PUBLISHED)
         obj, created = PurchasedCourse.objects.get_or_create(
             user=request.user, course=course, defaults={"is_active": True}
         )

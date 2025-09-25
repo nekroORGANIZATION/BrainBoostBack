@@ -17,6 +17,9 @@ from .serializers import (
     TestAttemptSerializer, TestAttemptDetailSerializer
 )
 from .permissions import HasCourseAccess
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+
 
 
 # ---------- Helpers ----------
@@ -350,25 +353,33 @@ class SubmitAttemptView(APIView):
         attempt.save()
 
         return Response(_respect_feedback_mode(test, attempt), status=200)
+class LessonTestByLessonView(APIView):
+    permission_classes = [IsAuthenticated, HasCourseAccess]
 
+    def get_course(self, obj: Test):
+        return obj.lesson.course
 
-# ---------- “Lesson → first published test” & “check” endpoints used by FE ----------
+    def get(self, request, lesson_id: int):
+        lesson = get_object_or_404(Lesson.objects.select_related('course'), pk=lesson_id)
+        test = (lesson.tests
+                .select_related('lesson__course')
+                .filter(status__iexact='published')
+                .order_by('id')
+                .first())
+        if not test:
+            if lesson.tests.exists():
+                return Response({'detail': 'Test exists but not published.'}, status=403)
+            return Response({'detail': 'Test not found or not published.'}, status=404)
 
-@api_view(['GET'])
-def lesson_test_by_lesson(request, lesson_id: int):
-    """Return first published test of a lesson (sanitized) for student."""
-    try:
-        lesson = Lesson.objects.select_related('course').get(pk=lesson_id)
-    except Lesson.DoesNotExist:
-        return Response({'detail': 'Lesson not found.'}, status=404)
+        self.check_object_permissions(request, test)   # <<< важливо
 
-    test = lesson.tests.filter(status=Test.Status.PUBLISHED).first()
-    if not test:
-        return Response({'detail': 'Test not found or not published.'}, status=404)
+        now = timezone.now()
+        if (test.opens_at and now < test.opens_at) or (test.closes_at and now > test.closes_at):
+            return Response({'detail': 'Тест недоступний за розкладом.'}, status=403)
 
-    data = TestSerializer(test).data
-    data = _sanitize_test_for_student(test, data, shuffle_q=True, shuffle_o=True)
-    return Response(data, status=200)
+        data = TestSerializer(test).data
+        data = _sanitize_test_for_student(test, data, shuffle_q=True, shuffle_o=True)
+        return Response(data, status=200)
 
 
 @api_view(['GET'])
