@@ -1,0 +1,20 @@
+name: Test SSH to Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ssh-test:
+    runs-on: ubuntu-latest
+    environment: main
+    steps:
+      - name: Test SSH connection
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.RUNNER_HOST }}
+          username: ${{ secrets.RUNNER_USER }}
+          key: ${{ secrets.RUNNER_SSH_KEY }}
+          script: |
+            echo "✅ Connected to Runner"
+            hostname
+            whoami

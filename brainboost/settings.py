@@ -89,12 +89,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'brainboost.wsgi.application'
 
-# Database
-# Database
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'app_dev',
+        'USER': 'app_dev_user',
+        'PASSWORD': 'PASSWORD123',
+        'HOST': '172.17.10.25',
+        'PORT': '5432',
     }
 }
 
@@ -153,9 +155,18 @@ REST_FRAMEWORK = {
 
 # CORS
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # Next.js
+    "http://localhost:3000",
+    "http://172.17.10.23:80",
+    "https://172.17.10.23",
+    "https://brainboost.pp.ua",
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://brainboost.pp.ua",
+    "https://172.17.10.23",   # если ходишь по IP через https
+    "http://localhost:3000",  # если иногда открываешь админку с локалки через прокси/туннель
+]
 
 OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
 
