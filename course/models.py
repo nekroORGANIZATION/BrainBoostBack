@@ -6,27 +6,6 @@ from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
 
 
-#  =======================================================================
-class Comment(models.Model):
-    course     = models.ForeignKey('course.Course', on_delete=models.CASCADE, related_name='comments')
-    author     = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='comments')
-    text       = models.TextField()
-    parent     = models.ForeignKey('self', null=True, blank=True, on_delete=models.CASCADE, related_name='replies')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)          # NEW
-    is_edited  = models.BooleanField(default=False)           # NEW
-
-    class Meta:
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['course', '-created_at']),
-        ]
-
-    def __str__(self) -> str:
-        return f'Comment by {self.author} on {getattr(self.course, "title", self.course_id)}'
-# =============================================================================
-
-
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
 
