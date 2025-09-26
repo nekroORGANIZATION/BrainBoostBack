@@ -156,15 +156,15 @@ REST_FRAMEWORK = {
 # CORS
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://172.17.10.23:80",
-    "https://172.17.10.23",
+    "http://172.17.10.22:80",
+    "https://172.17.10.22",
     "https://brainboost.pp.ua",
 ]
 CORS_ALLOW_CREDENTIALS = True
 
 CSRF_TRUSTED_ORIGINS = [
     "https://brainboost.pp.ua",
-    "https://172.17.10.23",   # если ходишь по IP через https
+    "https://172.17.10.22",   # если ходишь по IP через https
     "http://localhost:3000",  # если иногда открываешь админку с локалки через прокси/туннель
 ]
 
