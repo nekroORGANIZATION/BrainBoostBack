@@ -184,3 +184,13 @@ SOCIALACCOUNT_PROVIDERS = {
         'AUTH_PARAMS': { 'access_type': 'online' },
     }
 }
+
+REST_USE_JWT = True  # можно оставить, dj-rest-auth у тебя уже подключен
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=1),   # ← access живёт 1 час
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),   # ← refresh живёт 7 дней
+    "ROTATE_REFRESH_TOKENS": True,                 # при обновлении refresh меняется
+    "BLACKLIST_AFTER_ROTATION": True,              # старый refresh блэклистится
+    "AUTH_HEADER_TYPES": ("Bearer",),
+}
